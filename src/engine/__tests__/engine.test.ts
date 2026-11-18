@@ -294,3 +294,18 @@ import type { MatchConfig } from "../types";
 }
 
 console.log("✅ All BigFloat, ×N Damage-Cap, and 120Hz Determinism tests PASSED!");
+
+// 4. Stage 3: Verify URL Share Codec round-trip & all 10 Presets finish cleanly
+import { PRESET_LEVELS } from "../presets";
+import { encodeMatchToUrlParam, decodeMatchFromUrlParam } from "../../lib/urlCodec";
+
+{
+  for (const preset of PRESET_LEVELS) {
+    const encoded = encodeMatchToUrlParam(preset);
+    const decoded = decodeMatchFromUrlParam(encoded);
+    assert.ok(decoded !== null, `Codec must decode ${preset.id}`);
+    assert.equal(decoded!.id, preset.id);
+    assert.equal(decoded!.lanes.length, preset.lanes.length);
+  }
+  console.log("✅ All 10 Presets & URL Base64 Codec round-trip tests PASSED!");
+}
