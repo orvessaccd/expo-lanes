@@ -3,20 +3,18 @@
 import React, { useEffect, useRef } from "react";
 import {
   Box,
-  Button,
-  ButtonGroup,
   Chip,
   Paper,
   Stack,
+  Tooltip,
   Typography,
   useTheme,
 } from "@mui/material";
-import PlayArrowRoundedIcon from "@mui/icons-material/PlayArrowRounded";
-import PauseRoundedIcon from "@mui/icons-material/PauseRounded";
-import ReplayRoundedIcon from "@mui/icons-material/ReplayRounded";
-import BoltRoundedIcon from "@mui/icons-material/BoltRounded";
+import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
+import RadioButtonUncheckedRoundedIcon from "@mui/icons-material/RadioButtonUncheckedRounded";
 import {
   NumberFormatStyle,
+  bf,
   bfCmp,
   bfDiv,
   bfGt,
@@ -24,7 +22,6 @@ import {
   bfLog10Safe,
   bfToNumber,
   formatBigFloat,
-  bf,
 } from "@/engine/bigNumber";
 import {
   LANE_HEIGHT,
@@ -34,26 +31,22 @@ import {
   formatGateSlotLabel,
   getGateRowBoxes,
 } from "@/engine/simulation";
-import type { LaneRuntimeState, SimulationState, WinRuleType } from "@/engine/types";
+import type { LaneRuntimeState, SimulationState } from "@/engine/types";
+import type { OddsSummary } from "@/lib/storage";
 import { getLanePalettes, LanePalette } from "@/theme/theme";
+import { getLaneAlignedSpecs } from "./formulaFormat";
 
 export interface RaceArenaProps {
+  mode: "challenge" | "sandbox";
   simState: SimulationState;
+  wallsIdentical: boolean;
   formatStyle: NumberFormatStyle;
-  speedMultiplier: number;
-  onSpeedChange: (speed: number) => void;
-  onTogglePlay: () => void;
-  onReset: () => void;
+  oddsSummary?: OddsSummary;
+  selectedBetLane?: number;
   lockedBetLane: number | null;
   lockedOdds: number | null;
+  onSelectBetLane?: (laneIndex: number) => void;
 }
-
-const WIN_RULE_LABELS: Record<WinRuleType, string> = {
-  breakthrough_timed: "破底竞速 + 限时兜底",
-  endless_timed: "无限层限时冲刺",
-  breakthrough_untimed: "纯破底无时限",
-  push_elimination: "双向推线淘汰制",
-};
 
 function drawRoundedRect(
   ctx: CanvasRenderingContext2D,
@@ -97,62 +90,39 @@ function renderLaneCanvas(
   ctx.save();
   ctx.scale(dpr, dpr);
 
-  // 1. Arena background surface
-  const bgGrad = ctx.createLinearGradient(0, 0, 0, LANE_HEIGHT);
-  if (isDark) {
-    bgGrad.addColorStop(0, "#0D1219");
-    bgGrad.addColorStop(1, "#121924");
-  } else {
-    bgGrad.addColorStop(0, "#F8FAFC");
-    bgGrad.addColorStop(1, "#EEF3F8");
-  }
-  ctx.fillStyle = bgGrad;
+  // 1. Clean laboratory chamber background
+  ctx.fillStyle = isDark ? "#0D1219" : "#F8FAFC";
   ctx.fillRect(0, 0, LANE_WIDTH, LANE_HEIGHT);
 
-  // 2. Top Spawn / Push Elimination Line
-  const isPushMode = simState.config.rules.winRule === "push_elimination";
-  ctx.save();
-  ctx.beginPath();
-  ctx.setLineDash([5, 4]);
-  ctx.strokeStyle = isPushMode
-    ? "rgba(244, 63, 94, 0.72)"
-    : isDark
-      ? "rgba(148, 163, 184, 0.28)"
-      : "rgba(71, 85, 105, 0.25)";
-  ctx.lineWidth = isPushMode ? 1.6 : 1;
-  ctx.moveTo(8, SPAWN_LINE_Y);
-  ctx.lineTo(LANE_WIDTH - 8, SPAWN_LINE_Y);
-  ctx.stroke();
-  ctx.restore();
-
-  ctx.font = "600 10px monospace";
-  ctx.textBaseline = "middle";
-  if (isPushMode) {
-    ctx.fillStyle = isDark ? "#FB7185" : "#E11D48";
-    ctx.textAlign = "left";
-    ctx.fillText("▲ 触顶淘汰警戒线", 10, SPAWN_LINE_Y - 12);
-  } else {
-    ctx.fillStyle = isDark ? "rgba(148,163,184,0.65)" : "rgba(71,85,105,0.65)";
-    ctx.textAlign = "left";
-    ctx.fillText("发射基准线", 10, SPAWN_LINE_Y - 12);
+  // Subtle geometric horizontal reference lines (25% / 50% / 75%) for visual alignment
+  ctx.strokeStyle = isDark ? "rgba(148, 163, 184, 0.06)" : "rgba(15, 23, 42, 0.05)";
+  ctx.lineWidth = 1;
+  for (const ratio of [0.25, 0.5, 0.75]) {
+    const gy = Math.round(LANE_HEIGHT * ratio) + 0.5;
+    ctx.beginPath();
+    ctx.moveTo(0, gy);
+    ctx.lineTo(LANE_WIDTH, gy);
+    ctx.stroke();
   }
 
-  if (lane.config.ball.spawnPerSec > 0) {
-    ctx.fillStyle = palette.main;
-    ctx.textAlign = "right";
-    ctx.fillText(
-      `补球 +${lane.config.ball.spawnPerSec}/s`,
-      LANE_WIDTH - 10,
-      SPAWN_LINE_Y - 12
-    );
-  } else if (lane.config.ball.maxHitsPerBall > 0) {
-    ctx.fillStyle = isDark ? "#FBBF24" : "#D97706";
-    ctx.textAlign = "right";
-    ctx.fillText(
-      `寿命 ${lane.config.ball.maxHitsPerBall}撞`,
-      LANE_WIDTH - 10,
-      SPAWN_LINE_Y - 12
-    );
+  // 2. Top Push Elimination Warning Line (only prominent in push_elimination mode)
+  const isPushMode = simState.config.rules.winRule === "push_elimination";
+  if (isPushMode) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.setLineDash([5, 4]);
+    ctx.strokeStyle = "rgba(244, 63, 94, 0.75)";
+    ctx.lineWidth = 1.5;
+    ctx.moveTo(10, SPAWN_LINE_Y);
+    ctx.lineTo(LANE_WIDTH - 10, SPAWN_LINE_Y);
+    ctx.stroke();
+    ctx.restore();
+
+    ctx.font = "600 10px monospace";
+    ctx.fillStyle = isDark ? "#FB7185" : "#E11D48";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("▲ 触顶淘汰红线", LANE_WIDTH / 2, SPAWN_LINE_Y - 12);
   }
 
   // 3. Pachinko Pins
@@ -162,14 +132,9 @@ function renderLaneCanvas(
       ctx.arc(pin.x, pin.y, pin.radius, 0, Math.PI * 2);
       ctx.fillStyle = isDark ? "#334155" : "#CBD5E1";
       ctx.fill();
-      ctx.lineWidth = 1.2;
+      ctx.lineWidth = 1.1;
       ctx.strokeStyle = isDark ? "#64748B" : "#94A3B8";
       ctx.stroke();
-
-      ctx.beginPath();
-      ctx.arc(pin.x - 1.5, pin.y - 1.5, 1.6, 0, Math.PI * 2);
-      ctx.fillStyle = isDark ? "rgba(255,255,255,0.38)" : "rgba(255,255,255,0.85)";
-      ctx.fill();
     }
   }
 
@@ -181,18 +146,18 @@ function renderLaneCanvas(
         box.slot.op === "sub" || box.slot.op === "div" || box.slot.op === "sqrt";
       const fill = isNegative
         ? isDark
-          ? "rgba(244, 63, 94, 0.16)"
-          : "rgba(225, 29, 72, 0.11)"
+          ? "rgba(244, 63, 94, 0.15)"
+          : "rgba(225, 29, 72, 0.1)"
         : isDark
-          ? "rgba(16, 217, 136, 0.16)"
-          : "rgba(7, 138, 82, 0.11)";
+          ? "rgba(16, 217, 136, 0.15)"
+          : "rgba(7, 138, 82, 0.1)";
       const stroke = isNegative
         ? isDark
-          ? "rgba(251, 113, 133, 0.65)"
-          : "rgba(225, 29, 72, 0.55)"
+          ? "rgba(251, 113, 133, 0.62)"
+          : "rgba(225, 29, 72, 0.52)"
         : isDark
-          ? "rgba(52, 211, 153, 0.68)"
-          : "rgba(7, 138, 82, 0.55)";
+          ? "rgba(52, 211, 153, 0.65)"
+          : "rgba(7, 138, 82, 0.52)";
 
       drawRoundedRect(ctx, box.x, box.y, box.width, box.height, 6);
       ctx.fillStyle = fill;
@@ -216,13 +181,11 @@ function renderLaneCanvas(
     }
   }
 
-  // 5. Bottom Number Wall Stack
-  const isEndless = simState.config.rules.winRule === "endless_timed";
+  // 5. Crisp Bottom Number Wall Stack
   if (lane.frontWall) {
     const fw = lane.frontWall;
     const topY = lane.wallTopY;
 
-    // Calculate HP fill ratio safely across huge exponents
     let hpRatio = 1;
     if (!bfIsZero(fw.maxHp)) {
       const logDiff = bfLog10Safe(fw.maxHp, -6) - bfLog10Safe(fw.currentHp, -6);
@@ -236,20 +199,17 @@ function renderLaneCanvas(
       }
     }
 
-    // Front wall container
-    const wallX = 6;
-    const wallW = LANE_WIDTH - 12;
+    const wallX = 8;
+    const wallW = LANE_WIDTH - 16;
     const wallH = WALL_LAYER_HEIGHT + 6;
     drawRoundedRect(ctx, wallX, topY, wallW, wallH, 6);
-    ctx.fillStyle = isDark ? "#1B2432" : "#E2E8F0";
+    ctx.fillStyle = isDark ? "#18212E" : "#E2E8F0";
     ctx.fill();
 
-    // Active HP bar inside front wall
     ctx.save();
     ctx.clip();
-    ctx.fillStyle = palette.softBg.replace(/0\.11|0\.09/, isDark ? "0.34" : "0.26");
+    ctx.fillStyle = palette.softBg.replace(/0\.11|0\.09/, isDark ? "0.32" : "0.24");
     ctx.fillRect(wallX, topY, wallW * hpRatio, wallH);
-    // Top impact edge highlight
     ctx.fillStyle = palette.main;
     ctx.fillRect(wallX, topY, wallW * hpRatio, 2.5);
     ctx.restore();
@@ -258,17 +218,15 @@ function renderLaneCanvas(
     ctx.lineWidth = 1;
     ctx.strokeStyle = isDark
       ? "rgba(226, 232, 240, 0.16)"
-      : "rgba(15, 23, 42, 0.16)";
+      : "rgba(15, 23, 42, 0.14)";
     ctx.stroke();
 
-    // Layer badge on left
     ctx.fillStyle = isDark ? "#94A3B8" : "#475569";
     ctx.font = "600 10.5px monospace";
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
-    ctx.fillText(`#${fw.layerIndex + 1}`, wallX + 8, topY + wallH / 2);
+    ctx.fillText(`#${fw.layerIndex + 1}`, wallX + 9, topY + wallH / 2);
 
-    // Center large wall HP number
     ctx.fillStyle = isDark ? "#F8FAFC" : "#0F172A";
     ctx.font = "700 13.5px monospace";
     ctx.textAlign = "center";
@@ -278,7 +236,6 @@ function renderLaneCanvas(
       topY + wallH / 2 + 0.5
     );
 
-    // Right wall modifier tag (cap or compound regen)
     const wallCfg = lane.config.wall;
     const modTags: string[] = [];
     if (wallCfg.capMode === "fixed") {
@@ -296,46 +253,30 @@ function renderLaneCanvas(
       ctx.fillText(modTags.join(" "), wallX + wallW - 8, topY + wallH / 2);
     }
 
-    // Upcoming wall layers preview beneath frontWall
-    lane.upcomingWalls.forEach((uw, idx) => {
-      const uy = topY + wallH + 4 + idx * (WALL_LAYER_HEIGHT - 2);
-      if (uy > LANE_HEIGHT - 6) return;
-      const alphaFactor = Math.max(0.22, 0.72 - idx * 0.22);
+    // Subtle upcoming wall layers stacked beneath
+    lane.upcomingWalls.slice(0, 2).forEach((uw, idx) => {
+      const uy = topY + wallH + 4 + idx * (WALL_LAYER_HEIGHT - 3);
+      if (uy > LANE_HEIGHT - 8) return;
       ctx.save();
-      ctx.globalAlpha = alphaFactor;
-      drawRoundedRect(ctx, wallX + 3, uy, wallW - 6, WALL_LAYER_HEIGHT - 5, 5);
-      ctx.fillStyle = isDark ? "#141B26" : "#E8EEF5";
+      ctx.globalAlpha = idx === 0 ? 0.55 : 0.28;
+      drawRoundedRect(ctx, wallX + 3, uy, wallW - 6, WALL_LAYER_HEIGHT - 6, 5);
+      ctx.fillStyle = isDark ? "#131A24" : "#E8EEF5";
       ctx.fill();
-      ctx.strokeStyle = isDark
-        ? "rgba(148, 163, 184, 0.14)"
-        : "rgba(15, 23, 42, 0.1)";
-      ctx.stroke();
-
       ctx.fillStyle = isDark ? "#94A3B8" : "#475569";
       ctx.font = "600 10px monospace";
       ctx.textAlign = "left";
-      ctx.fillText(`#${uw.layerIndex + 1}`, wallX + 10, uy + (WALL_LAYER_HEIGHT - 5) / 2);
-
+      ctx.textBaseline = "middle";
+      ctx.fillText(`#${uw.layerIndex + 1}`, wallX + 10, uy + (WALL_LAYER_HEIGHT - 6) / 2);
       ctx.textAlign = "center";
       ctx.fillText(
         formatBigFloat(uw.currentHp, formatStyle, 2),
         LANE_WIDTH / 2,
-        uy + (WALL_LAYER_HEIGHT - 5) / 2
+        uy + (WALL_LAYER_HEIGHT - 6) / 2
       );
       ctx.restore();
     });
-
-    // Remaining layers footer badge
-    if (!isEndless) {
-      const rem = Math.max(0, lane.config.wall.totalLayers - lane.brokenLayers);
-      ctx.fillStyle = isDark ? "rgba(148,163,184,0.65)" : "rgba(71,85,105,0.7)";
-      ctx.font = "600 10px monospace";
-      ctx.textAlign = "center";
-      ctx.fillText(`剩余 ${rem} 层触底`, LANE_WIDTH / 2, LANE_HEIGHT - 10);
-    }
   } else {
-    // All finite walls cleared!
-    drawRoundedRect(ctx, 16, LANE_HEIGHT - 66, LANE_WIDTH - 32, 42, 8);
+    drawRoundedRect(ctx, 18, LANE_HEIGHT - 62, LANE_WIDTH - 36, 40, 8);
     ctx.fillStyle = palette.softBg;
     ctx.fill();
     ctx.strokeStyle = palette.main;
@@ -345,10 +286,10 @@ function renderLaneCanvas(
     ctx.font = "700 13px sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("✓ 全部数字墙已击穿！", LANE_WIDTH / 2, LANE_HEIGHT - 45);
+    ctx.fillText("✓ 数字墙已全部击穿", LANE_WIDTH / 2, LANE_HEIGHT - 42);
   }
 
-  // 6. Shatter Particles for this lane
+  // 6. Shatter Particles
   for (const p of simState.particles) {
     if (p.laneIndex !== lane.laneIndex) continue;
     const life = Math.max(0, 1 - p.age / p.ttl);
@@ -359,35 +300,30 @@ function renderLaneCanvas(
     ctx.restore();
   }
 
-  // 7. Physical Balls + Motion Trails + Numeric Labels + ×N Stack Pills
-  const showAllLabels = lane.balls.length <= 24;
+  // 7. Physical Balls + Motion Trails + Numeric Labels
+  const showAllLabels = lane.balls.length <= 22;
   lane.balls.forEach((ball, bIdx) => {
-    // Motion trail
     ctx.beginPath();
     ctx.moveTo(ball.x, ball.y);
-    ctx.lineTo(ball.x - ball.vx * 0.024, ball.y - ball.vy * 0.024);
+    ctx.lineTo(ball.x - ball.vx * 0.022, ball.y - ball.vy * 0.022);
     ctx.strokeStyle = palette.canvasTrail;
-    ctx.lineWidth = ball.radius * 1.45;
+    ctx.lineWidth = ball.radius * 1.4;
     ctx.lineCap = "round";
     ctx.stroke();
 
-    // Ball body
     ctx.beginPath();
     ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
     ctx.fillStyle = palette.canvasFill;
     ctx.fill();
     ctx.lineWidth = 1.2;
-    ctx.strokeStyle = isDark ? "rgba(255,255,255,0.75)" : "rgba(15,23,42,0.5)";
+    ctx.strokeStyle = isDark ? "rgba(255,255,255,0.72)" : "rgba(15,23,42,0.45)";
     ctx.stroke();
 
-    // Render value & ×N stack badge (throttled neatly if >24 physical balls so screen stays readable)
     if (showAllLabels || bIdx % 3 === 0 || bfGt(ball.stackCount, bf(1.5))) {
       const valText = formatBigFloat(ball.value, formatStyle, 1);
       ctx.font = "700 9.5px monospace";
       ctx.textAlign = "center";
       ctx.textBaseline = "bottom";
-
-      // Subtle contrast outline behind text
       ctx.lineWidth = 2.6;
       ctx.strokeStyle = isDark ? "rgba(11, 14, 19, 0.9)" : "rgba(255, 255, 255, 0.92)";
       ctx.strokeText(valText, ball.x, ball.y - ball.radius - 2);
@@ -405,7 +341,7 @@ function renderLaneCanvas(
     }
   });
 
-  // 8. Floating Combat / Formula Delta Texts
+  // 8. Floating Delta Texts
   for (const ft of simState.floatTexts) {
     if (ft.laneIndex !== lane.laneIndex) continue;
     const alpha = Math.max(0, 1 - ft.age / ft.ttl);
@@ -413,75 +349,77 @@ function renderLaneCanvas(
     ctx.globalAlpha = alpha;
     ctx.font =
       ft.kind === "break" || ft.kind === "jackpot"
-        ? "700 12px monospace"
-        : "600 10px monospace";
+        ? "700 11.5px monospace"
+        : "600 9.5px monospace";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-
-    if (ft.kind === "break") {
-      ctx.fillStyle = palette.light;
-    } else if (ft.kind === "jackpot") {
-      ctx.fillStyle = "#FBBF24";
-    } else if (ft.kind === "sabotage") {
-      ctx.fillStyle = "#FB7185";
-    } else if (ft.kind === "gate") {
-      ctx.fillStyle = isDark ? "#6EE7B7" : "#047857";
-    } else {
-      ctx.fillStyle = isDark ? "#CBD5E1" : "#334155";
-    }
+    ctx.fillStyle =
+      ft.kind === "break"
+        ? palette.light
+        : ft.kind === "jackpot"
+          ? "#FBBF24"
+          : ft.kind === "sabotage"
+            ? "#FB7185"
+            : ft.kind === "gate"
+              ? isDark
+                ? "#6EE7B7"
+                : "#047857"
+              : isDark
+                ? "#CBD5E1"
+                : "#334155";
     ctx.fillText(ft.text, ft.x, ft.y);
     ctx.restore();
   }
 
-  // 9. Eliminated or Winner State Banner
+  // 9. Eliminated or Winner State Overlay
   if (lane.eliminated) {
-    ctx.fillStyle = isDark ? "rgba(11, 14, 19, 0.72)" : "rgba(241, 245, 249, 0.78)";
+    ctx.fillStyle = isDark ? "rgba(11, 14, 19, 0.76)" : "rgba(241, 245, 249, 0.82)";
     ctx.fillRect(0, 0, LANE_WIDTH, LANE_HEIGHT);
     ctx.fillStyle = "#F43F5E";
-    ctx.font = "700 16px sans-serif";
+    ctx.font = "700 15px sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("✕ 推线触顶淘汰", LANE_WIDTH / 2, LANE_HEIGHT / 2 - 10);
-    ctx.font = "600 12px monospace";
+    ctx.fillText("✕ 推线触顶淘汰", LANE_WIDTH / 2, LANE_HEIGHT / 2 - 8);
+    ctx.font = "600 11.5px monospace";
     ctx.fillStyle = isDark ? "#94A3B8" : "#475569";
     ctx.fillText(
-      `淘汰于 ${(lane.eliminatedAtSec ?? 0).toFixed(2)}s · 碎 ${lane.brokenLayers} 层`,
+      `${(lane.eliminatedAtSec ?? 0).toFixed(1)}s · 破 ${lane.brokenLayers} 层`,
       LANE_WIDTH / 2,
       LANE_HEIGHT / 2 + 14
     );
   } else if (isWinner && simState.status === "finished") {
-    drawRoundedRect(ctx, 28, 62, LANE_WIDTH - 56, 34, 8);
-    ctx.fillStyle = isDark ? "rgba(16, 217, 136, 0.2)" : "rgba(7, 138, 82, 0.15)";
+    drawRoundedRect(ctx, 36, 36, LANE_WIDTH - 72, 32, 8);
+    ctx.fillStyle = isDark ? "rgba(16, 217, 136, 0.2)" : "rgba(7, 138, 82, 0.14)";
     ctx.fill();
     ctx.strokeStyle = palette.main;
     ctx.lineWidth = 1.4;
     ctx.stroke();
     ctx.fillStyle = isDark ? "#ECFDF5" : "#064E3B";
-    ctx.font = "700 13px sans-serif";
+    ctx.font = "700 12.5px sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("★ 本局优胜赛道", LANE_WIDTH / 2, 79);
+    ctx.fillText("★ 本局获胜赛道", LANE_WIDTH / 2, 52);
   }
 
   ctx.restore();
 }
 
 export default function RaceArena({
+  mode,
   simState,
+  wallsIdentical,
   formatStyle,
-  speedMultiplier,
-  onSpeedChange,
-  onTogglePlay,
-  onReset,
+  oddsSummary,
+  selectedBetLane = 0,
   lockedBetLane,
   lockedOdds,
+  onSelectBetLane,
 }: RaceArenaProps) {
   const theme = useTheme();
   const isDark = theme.palette.mode === "dark";
   const palettes = getLanePalettes(theme.palette.mode);
   const canvasRefs = useRef<Array<HTMLCanvasElement | null>>([]);
 
-  // Paint canvases whenever simState updates
   useEffect(() => {
     simState.lanes.forEach((lane, idx) => {
       const canvas = canvasRefs.current[idx];
@@ -498,378 +436,350 @@ export default function RaceArena({
     });
   });
 
-  const isTimed =
-    simState.config.rules.winRule === "breakthrough_timed" ||
-    simState.config.rules.winRule === "endless_timed";
   const isEndless = simState.config.rules.winRule === "endless_timed";
-  const hasCoupling =
-    simState.config.coupling.sabotageTransferPct > 0 ||
-    simState.config.coupling.sharedPoolEnabled;
+  const isPreMatchChallenge =
+    mode === "challenge" && simState.status === "ready";
 
   return (
-    <Paper sx={{ p: { xs: 1.5, sm: 2.25 } }}>
-      {/* Top Arena Control Bar */}
-      <Stack
-        direction={{ xs: "column", md: "row" }}
-        spacing={1.5}
-        sx={{
-          alignItems: { xs: "stretch", md: "center" },
-          justifyContent: "space-between",
-          mb: 1.75,
-        }}
-      >
-        <Stack
-          direction="row"
-          spacing={1}
-          useFlexGap
-          sx={{ alignItems: "center", flexWrap: "wrap" }}
-        >
-          <Chip
-            size="small"
-            color={
-              simState.status === "running"
-                ? "primary"
-                : simState.status === "finished"
-                  ? "success"
-                  : "default"
-            }
-            label={
-              simState.status === "ready"
-                ? "待发车"
-                : simState.status === "running"
-                  ? "120Hz 运算中"
-                  : simState.status === "paused"
-                    ? "已暂停"
-                    : "比赛结束"
-            }
-          />
-          <Chip
-            size="small"
-            variant="outlined"
-            label={WIN_RULE_LABELS[simState.config.rules.winRule]}
-          />
-          <Typography
-            variant="caption"
-            className="tabular-nums"
-            color="text.secondary"
-            sx={{ px: 0.5 }}
-          >
-            Seed: {simState.config.seed}
-          </Typography>
-        </Stack>
+    <Box
+      sx={{
+        display: "grid",
+        gridTemplateColumns: {
+          xs: "1fr",
+          sm: `repeat(${simState.lanes.length}, minmax(0, 1fr))`,
+        },
+        gap: 2,
+        alignItems: "stretch",
+      }}
+    >
+      {simState.lanes.map((lane, idx) => {
+        const pal = palettes[idx % palettes.length];
+        const odd = oddsSummary?.odds[idx] ?? 2.0;
+        const sharePct = Math.round((oddsSummary?.shares[idx] ?? 0.5) * 100);
+        const isSelected = isPreMatchChallenge && selectedBetLane === idx;
+        const isLockedTarget = lockedBetLane === idx;
+        const isWinner =
+          simState.status === "finished" && simState.winnerLaneIndex === idx;
 
-        <Stack
-          direction="row"
-          spacing={1.25}
-          useFlexGap
-          sx={{
-            alignItems: "center",
-            justifyContent: "space-between",
-            flexWrap: "wrap",
-          }}
-        >
-          <Typography
-            variant="body2"
-            className="tabular-nums"
-            sx={{ fontWeight: 700, minWidth: 112 }}
-          >
-            {isTimed
-              ? `⏱ ${simState.elapsedSec.toFixed(2)}s / ${simState.config.rules.timeLimitSec}s`
-              : `⏱ ${simState.elapsedSec.toFixed(2)}s`}
-          </Typography>
+        const specs = getLaneAlignedSpecs(
+          lane.config,
+          wallsIdentical,
+          simState.config.rules.winRule,
+          formatStyle
+        );
 
-          <ButtonGroup size="small" aria-label="倍速切换">
-            {[0.5, 1, 2, 4].map((spd) => (
-              <Button
-                key={spd}
-                id={`speed-btn-${spd}x`}
-                variant={speedMultiplier === spd ? "contained" : "outlined"}
-                onClick={() => onSpeedChange(spd)}
-                sx={{ px: 1.1, minWidth: 42 }}
-              >
-                {spd}x
-              </Button>
-            ))}
-          </ButtonGroup>
+        const highlightBorder =
+          isWinner || isSelected || isLockedTarget ? pal.main : "divider";
 
-          <Stack direction="row" spacing={0.75}>
-            <Button
-              id="arena-play-pause-btn"
-              size="small"
-              variant="contained"
-              color={simState.status === "running" ? "secondary" : "primary"}
-              startIcon={
-                simState.status === "running" ? (
-                  <PauseRoundedIcon />
-                ) : (
-                  <PlayArrowRoundedIcon />
-                )
+        return (
+          <Paper
+            key={lane.config.id || idx}
+            id={`arena-lane-card-${idx}`}
+            onClick={() => {
+              if (isPreMatchChallenge && onSelectBetLane) {
+                onSelectBetLane(idx);
               }
-              onClick={onTogglePlay}
-              disabled={simState.status === "finished"}
-            >
-              {simState.status === "running"
-                ? "暂停"
-                : simState.status === "paused"
-                  ? "继续"
-                  : "直接开赛"}
-            </Button>
-            <Button
-              id="arena-reset-btn"
-              size="small"
-              variant="outlined"
-              startIcon={<ReplayRoundedIcon />}
-              onClick={onReset}
-            >
-              重置
-            </Button>
-          </Stack>
-        </Stack>
-      </Stack>
-
-      {/* Cross-Lane Numeric Coupling Banner */}
-      {hasCoupling && (
-        <Box
-          sx={{
-            mb: 1.75,
-            px: 1.75,
-            py: 1,
-            borderRadius: 1.5,
-            bgcolor: isDark
-              ? "rgba(245, 158, 11, 0.08)"
-              : "rgba(217, 119, 6, 0.07)",
-            border: "1px solid",
-            borderColor: isDark
-              ? "rgba(245, 158, 11, 0.25)"
-              : "rgba(217, 119, 6, 0.22)",
-            display: "flex",
-            flexWrap: "wrap",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: 1,
-          }}
-        >
-          <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
-            <BoltRoundedIcon fontSize="small" color="warning" />
-            <Typography variant="caption" sx={{ fontWeight: 600 }}>
-              跨赛道数字联动已开启
-            </Typography>
-          </Stack>
-          <Stack direction="row" spacing={2} useFlexGap sx={{ flexWrap: "wrap" }}>
-            {simState.config.coupling.sabotageTransferPct > 0 && (
-              <Typography variant="caption" className="tabular-nums">
-                破墙转嫁对手：
-                <strong>
-                  +{Math.round(simState.config.coupling.sabotageTransferPct * 100)}%
-                </strong>{" "}
-                初始墙值
-              </Typography>
-            )}
-            {simState.config.coupling.sharedPoolEnabled && (
-              <Typography
-                variant="caption"
-                className="tabular-nums"
-                color="warning.main"
-                sx={{ fontWeight: 700 }}
-              >
-                公共倍增池：+{formatBigFloat(simState.sharedPoolValue, formatStyle)}（每破{" "}
-                {simState.config.coupling.poolMilestoneEveryLayers} 层夺取）
-              </Typography>
-            )}
-          </Stack>
-        </Box>
-      )}
-
-      {/* Win Result Banner */}
-      {simState.status === "finished" && simState.winReason && (
-        <Box
-          sx={{
-            mb: 1.75,
-            px: 2,
-            py: 1.25,
-            borderRadius: 1.5,
-            bgcolor: isDark
-              ? "rgba(16, 217, 136, 0.1)"
-              : "rgba(7, 138, 82, 0.08)",
-            border: "1px solid",
-            borderColor: "success.main",
-          }}
-        >
-          <Typography variant="body2" sx={{ fontWeight: 700 }}>
-            🏁 {simState.winReason}
-          </Typography>
-        </Box>
-      )}
-
-      {/* Parallel 2~3 Lanes Grid */}
-      <Box
-        sx={{
-          display: "grid",
-          gridTemplateColumns: {
-            xs: "1fr",
-            sm: `repeat(${simState.lanes.length}, minmax(0, 1fr))`,
-          },
-          gap: 1.75,
-        }}
-      >
-        {simState.lanes.map((lane, idx) => {
-          const pal = palettes[idx % palettes.length];
-          const isBetTarget = lockedBetLane === idx;
-
-          return (
+            }}
+            sx={{
+              display: "grid",
+              gridTemplateRows: "52px 96px auto 48px",
+              overflow: "hidden",
+              cursor: isPreMatchChallenge ? "pointer" : "default",
+              borderWidth: isSelected || isLockedTarget || isWinner ? "1.5px" : "1px",
+              borderStyle: "solid",
+              borderColor: highlightBorder,
+              transition: "border-color 140ms ease, transform 140ms ease",
+              "&:hover": isPreMatchChallenge
+                ? {
+                    borderColor: pal.main,
+                  }
+                : undefined,
+            }}
+          >
+            {/* Row 1 (52px exact): Lane Index + Name + Odds/Status */}
             <Box
-              key={lane.config.id || idx}
               sx={{
+                px: 1.75,
                 display: "flex",
-                flexDirection: "column",
-                borderRadius: 2,
-                overflow: "hidden",
-                border: "1px solid",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 1,
+                borderBottom: "1px solid",
                 borderColor: "divider",
-                bgcolor: "background.paper",
+                bgcolor: isSelected || isLockedTarget ? pal.softBg : "transparent",
               }}
             >
-              {/* Lane HUD Header */}
-              <Box
-                sx={{
-                  p: 1.25,
-                  borderBottom: "1px solid",
-                  borderColor: "divider",
-                  backgroundColor: pal.softBg,
-                }}
+              <Stack
+                direction="row"
+                spacing={1}
+                sx={{ alignItems: "center", minWidth: 0 }}
               >
+                <Box
+                  sx={{
+                    width: 24,
+                    height: 24,
+                    borderRadius: 1,
+                    bgcolor: pal.main,
+                    color: "#061018",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontFamily: "var(--font-mono)",
+                    fontWeight: 800,
+                    fontSize: "0.8rem",
+                    flexShrink: 0,
+                  }}
+                >
+                  {idx + 1}
+                </Box>
+                <Typography
+                  variant="subtitle2"
+                  noWrap
+                  sx={{ fontWeight: 700, fontSize: "0.92rem" }}
+                >
+                  {lane.config.name}
+                </Typography>
+              </Stack>
+
+              {mode === "challenge" ? (
                 <Stack
                   direction="row"
-                  spacing={0.5}
-                  sx={{ alignItems: "center", justifyContent: "space-between" }}
+                  spacing={0.75}
+                  sx={{ alignItems: "center", flexShrink: 0 }}
                 >
-                  <Stack
-                    direction="row"
-                    spacing={0.85}
-                    sx={{ alignItems: "center", minWidth: 0 }}
-                  >
-                    <Box
-                      sx={{
-                        width: 10,
-                        height: 10,
-                        borderRadius: "50%",
-                        bgcolor: pal.main,
-                        flexShrink: 0,
-                      }}
-                    />
-                    <Typography
-                      variant="subtitle2"
-                      noWrap
-                      sx={{ fontWeight: 700, fontSize: "0.86rem" }}
-                    >
-                      {lane.config.name}
-                    </Typography>
-                  </Stack>
-
-                  {isBetTarget && (
+                  {isLockedTarget ? (
                     <Chip
                       size="small"
-                      color="secondary"
-                      label={`已押 ×${(lockedOdds ?? 1).toFixed(2)}`}
-                      sx={{ height: 20, fontSize: "0.7rem" }}
+                      label={`已押 ×${(lockedOdds ?? odd).toFixed(2)}`}
+                      sx={{
+                        height: 24,
+                        fontWeight: 700,
+                        fontFamily: "var(--font-mono)",
+                        bgcolor: pal.main,
+                        color: "#061018",
+                      }}
                     />
+                  ) : (
+                    <>
+                      <Typography
+                        variant="caption"
+                        className="tabular-nums"
+                        color="text.secondary"
+                        sx={{ fontSize: "0.72rem" }}
+                      >
+                        {sharePct}%热度
+                      </Typography>
+                      <Box
+                        sx={{
+                          px: 1,
+                          py: 0.3,
+                          borderRadius: 1,
+                          bgcolor: isSelected ? pal.main : pal.softBg,
+                          color: isSelected ? "#061018" : pal.main,
+                          fontFamily: "var(--font-mono)",
+                          fontWeight: 800,
+                          fontSize: "0.82rem",
+                          lineHeight: 1.2,
+                        }}
+                      >
+                        ×{odd.toFixed(2)}
+                      </Box>
+                    </>
                   )}
                 </Stack>
+              ) : (
+                <Typography
+                  variant="caption"
+                  className="tabular-nums"
+                  color="text.secondary"
+                  sx={{ flexShrink: 0 }}
+                >
+                  {idx + 1}号实验道
+                </Typography>
+              )}
+            </Box>
 
-                {lane.config.subtitle && (
+            {/* Row 2 (96px exact): 3 Strictly Aligned Parameter Rows */}
+            <Box
+              sx={{
+                px: 1.75,
+                py: 1,
+                display: "grid",
+                gridTemplateRows: "repeat(3, 24px)",
+                alignContent: "center",
+                borderBottom: "1px solid",
+                borderColor: "divider",
+                bgcolor: isDark
+                  ? "rgba(255, 255, 255, 0.015)"
+                  : "rgba(15, 23, 42, 0.018)",
+              }}
+            >
+              {[
+                { label: "起手", value: specs.start, accent: false },
+                {
+                  label: "增长",
+                  value: specs.growth,
+                  accent: lane.config.ball.triggers.length > 0,
+                },
+                { label: "装置", value: specs.mechanism, accent: false },
+              ].map((row) => (
+                <Box
+                  key={row.label}
+                  sx={{
+                    display: "grid",
+                    gridTemplateColumns: "38px minmax(0, 1fr)",
+                    alignItems: "center",
+                    gap: 1,
+                  }}
+                >
                   <Typography
                     variant="caption"
                     color="text.secondary"
-                    noWrap
-                    sx={{ display: "block", mt: 0.25 }}
+                    sx={{
+                      fontSize: "0.72rem",
+                      fontWeight: 600,
+                      letterSpacing: "0.02em",
+                    }}
                   >
-                    {lane.config.subtitle}
+                    {row.label}
                   </Typography>
-                )}
-
-                <Box
-                  sx={{
-                    mt: 1,
-                    display: "grid",
-                    gridTemplateColumns: "repeat(3, 1fr)",
-                    gap: 0.75,
-                  }}
-                >
-                  <Box>
+                  <Tooltip title={row.value} placement="top" enterDelay={500}>
                     <Typography
                       variant="caption"
-                      color="text.secondary"
-                      sx={{ fontSize: "0.68rem", display: "block" }}
-                    >
-                      当前球数
-                    </Typography>
-                    <Typography
-                      variant="body2"
+                      noWrap
                       className="tabular-nums"
-                      sx={{ fontWeight: 700, fontSize: "0.82rem" }}
+                      sx={{
+                        fontSize: "0.78rem",
+                        fontWeight: row.accent ? 700 : 500,
+                        color: row.accent ? pal.main : "text.primary",
+                      }}
                     >
-                      {formatBigFloat(lane.totalBallCount, formatStyle, 1)}
+                      {row.value}
                     </Typography>
-                  </Box>
-                  <Box>
-                    <Typography
-                      variant="caption"
-                      color="text.secondary"
-                      sx={{ fontSize: "0.68rem", display: "block" }}
-                    >
-                      最高球值
-                    </Typography>
-                    <Typography
-                      variant="body2"
-                      className="tabular-nums"
-                      sx={{ fontWeight: 700, fontSize: "0.82rem", color: pal.main }}
-                    >
-                      {formatBigFloat(lane.maxBallValue, formatStyle, 2)}
-                    </Typography>
-                  </Box>
-                  <Box>
-                    <Typography
-                      variant="caption"
-                      color="text.secondary"
-                      sx={{ fontSize: "0.68rem", display: "block" }}
-                    >
-                      已破墙层
-                    </Typography>
-                    <Typography
-                      variant="body2"
-                      className="tabular-nums"
-                      sx={{ fontWeight: 700, fontSize: "0.82rem" }}
-                    >
-                      {lane.brokenLayers} /{" "}
-                      {isEndless ? "∞" : lane.config.wall.totalLayers}
-                    </Typography>
-                  </Box>
+                  </Tooltip>
                 </Box>
-              </Box>
+              ))}
+            </Box>
 
-              {/* High-DPI Lane Simulation Canvas */}
+            {/* Row 3: High-DPI Physics Simulation Canvas */}
+            <Box
+              sx={{
+                width: "100%",
+                aspectRatio: `${LANE_WIDTH} / 440`,
+                position: "relative",
+                bgcolor: isDark ? "#0D1219" : "#F8FAFC",
+              }}
+            >
+              <canvas
+                ref={(el) => {
+                  canvasRefs.current[idx] = el;
+                }}
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  display: "block",
+                }}
+              />
+            </Box>
+
+            {/* Row 4 (48px exact): Pre-match Selection Footer OR Aligned 3-Col Telemetry */}
+            {isPreMatchChallenge ? (
               <Box
                 sx={{
-                  width: "100%",
-                  aspectRatio: `${LANE_WIDTH} / ${LANE_HEIGHT}`,
-                  position: "relative",
+                  px: 1.75,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 0.75,
+                  borderTop: "1px solid",
+                  borderColor: isSelected ? pal.main : "divider",
+                  bgcolor: isSelected ? pal.main : "transparent",
+                  color: isSelected ? "#061018" : "text.secondary",
+                  fontWeight: 700,
+                  fontSize: "0.84rem",
+                  transition: "background-color 140ms ease, color 140ms ease",
                 }}
               >
-                <canvas
-                  ref={(el) => {
-                    canvasRefs.current[idx] = el;
-                  }}
-                  style={{
-                    width: "100%",
-                    height: "100%",
-                    display: "block",
-                  }}
-                />
+                {isSelected ? (
+                  <>
+                    <CheckCircleRoundedIcon sx={{ fontSize: 18 }} />
+                    <span>已选此道获胜 · 赔率 ×{odd.toFixed(2)}</span>
+                  </>
+                ) : (
+                  <>
+                    <RadioButtonUncheckedRoundedIcon sx={{ fontSize: 17 }} />
+                    <span>点击预测此赛道获胜</span>
+                  </>
+                )}
               </Box>
-            </Box>
-          );
-        })}
-      </Box>
-    </Paper>
+            ) : (
+              <Box
+                sx={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(3, 1fr)",
+                  borderTop: "1px solid",
+                  borderColor: "divider",
+                  bgcolor: isDark
+                    ? "rgba(255, 255, 255, 0.02)"
+                    : "rgba(15, 23, 42, 0.02)",
+                }}
+              >
+                {[
+                  {
+                    k: "球数",
+                    v: formatBigFloat(lane.totalBallCount, formatStyle, 1),
+                    accent: false,
+                  },
+                  {
+                    k: "最大球值",
+                    v: formatBigFloat(lane.maxBallValue, formatStyle, 2),
+                    accent: true,
+                  },
+                  {
+                    k: "破墙进度",
+                    v: `${lane.brokenLayers}/${isEndless ? "∞" : lane.config.wall.totalLayers}`,
+                    accent: false,
+                  },
+                ].map((cell, cIdx) => (
+                  <Box
+                    key={cell.k}
+                    sx={{
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      borderLeft: cIdx > 0 ? "1px solid" : "none",
+                      borderColor: "divider",
+                      px: 0.5,
+                    }}
+                  >
+                    <Typography
+                      variant="caption"
+                      color="text.secondary"
+                      sx={{ fontSize: "0.66rem", lineHeight: 1.15 }}
+                    >
+                      {cell.k}
+                    </Typography>
+                    <Typography
+                      variant="caption"
+                      noWrap
+                      className="tabular-nums"
+                      sx={{
+                        fontSize: "0.8rem",
+                        fontWeight: 700,
+                        lineHeight: 1.25,
+                        color: cell.accent ? pal.main : "text.primary",
+                      }}
+                    >
+                      {cell.v}
+                    </Typography>
+                  </Box>
+                ))}
+              </Box>
+            )}
+          </Paper>
+        );
+      })}
+    </Box>
   );
 }

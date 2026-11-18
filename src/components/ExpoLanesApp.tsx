@@ -6,39 +6,42 @@ import {
   Box,
   Button,
   Chip,
+  Collapse,
   Container,
+  Divider,
   IconButton,
+  ListItemIcon,
+  ListItemText,
+  Menu,
+  MenuItem,
+  Paper,
+  Popover,
   Stack,
-  Tab,
-  Tabs,
+  Switch,
   ToggleButton,
   ToggleButtonGroup,
   Toolbar,
-  Tooltip,
   Typography,
 } from "@mui/material";
-import VolumeUpRoundedIcon from "@mui/icons-material/VolumeUpRounded";
-import VolumeOffRoundedIcon from "@mui/icons-material/VolumeOffRounded";
-import LightModeRoundedIcon from "@mui/icons-material/LightModeRounded";
-import DarkModeRoundedIcon from "@mui/icons-material/DarkModeRounded";
 import EmojiEventsRoundedIcon from "@mui/icons-material/EmojiEventsRounded";
-import CasinoRoundedIcon from "@mui/icons-material/CasinoRounded";
-import ScienceRoundedIcon from "@mui/icons-material/ScienceRounded";
-import ExploreRoundedIcon from "@mui/icons-material/ExploreRounded";
+import TuneRoundedIcon from "@mui/icons-material/TuneRounded";
+import ChevronLeftRoundedIcon from "@mui/icons-material/ChevronLeftRounded";
+import ChevronRightRoundedIcon from "@mui/icons-material/ChevronRightRounded";
+import KeyboardArrowDownRoundedIcon from "@mui/icons-material/KeyboardArrowDownRounded";
+import KeyboardArrowUpRoundedIcon from "@mui/icons-material/KeyboardArrowUpRounded";
+import ShowChartRoundedIcon from "@mui/icons-material/ShowChartRounded";
+import CheckRoundedIcon from "@mui/icons-material/CheckRounded";
+import BoltRoundedIcon from "@mui/icons-material/BoltRounded";
 import {
   BigFloat,
   NumberFormatStyle,
   bf,
   bfAdd,
-  bfCmp,
   bfMulNum,
   bfSubClampZero,
   formatBigFloat,
 } from "@/engine/bigNumber";
-import {
-  PRESET_LEVELS,
-  createDefaultSandboxConfig,
-} from "@/engine/presets";
+import { PRESET_LEVELS, createDefaultSandboxConfig } from "@/engine/presets";
 import {
   SIM_DT,
   createSimulation,
@@ -49,12 +52,13 @@ import type { MatchConfig, SimulationState } from "@/engine/types";
 import type { OddsSummary } from "@/lib/storage";
 import { decodeMatchFromUrlParam } from "@/lib/urlCodec";
 import { useColorMode } from "@/theme/ThemeRegistry";
-import BettingPanel, { BetSettlementInfo } from "./BettingPanel";
+import ActionDock, { BetSettlementInfo } from "./ActionDock";
 import ChallengeBrowser, { LevelWithOdds } from "./ChallengeBrowser";
 import LeaderboardDialog from "./LeaderboardDialog";
 import RaceArena from "./RaceArena";
 import SandboxEditor from "./SandboxEditor";
 import TelemetryChart from "./TelemetryChart";
+import { getMatchHeaderSummary } from "./formulaFormat";
 
 type AppViewMode = "challenge" | "sandbox" | "browser";
 
@@ -101,13 +105,18 @@ function makeSimSnapshot(sim: SimulationState, tick = 0): SimSnapshot {
 }
 
 export default function ExpoLanesApp() {
-  const { mode: colorMode, toggleColorMode } = useColorMode();
+  const { mode: colorMode, setColorMode } = useColorMode();
 
   const [viewMode, setViewMode] = useState<AppViewMode>("challenge");
   const [formatStyle, setFormatStyle] = useState<NumberFormatStyle>("intl");
   const [soundOn, setSoundOn] = useState(false);
   const [speedMultiplier, setSpeedMultiplier] = useState<number>(1);
   const [leaderboardOpen, setLeaderboardOpen] = useState(false);
+  const [chartExpanded, setChartExpanded] = useState(false);
+
+  // Menus & Popovers
+  const [prefsAnchor, setPrefsAnchor] = useState<HTMLElement | null>(null);
+  const [levelMenuAnchor, setLevelMenuAnchor] = useState<HTMLElement | null>(null);
 
   // Player progression state
   const [bankroll, setBankroll] = useState<BigFloat>(() => bf(1000));
@@ -128,13 +137,14 @@ export default function ExpoLanesApp() {
     createDefaultSandboxConfig()
   );
 
-  // Betting runtime state
+  // Betting selection & lock state
+  const [selectedBetLane, setSelectedBetLane] = useState<number>(0);
   const [lockedBetLane, setLockedBetLane] = useState<number | null>(null);
   const [lockedOdds, setLockedOdds] = useState<number | null>(null);
   const [settlement, setSettlement] = useState<BetSettlementInfo | null>(null);
   const lockedBetRef = useRef<LockedBetContext | null>(null);
 
-  // Simulation mutable engine ref + React snapshot state for pure render
+  // Simulation mutable engine ref + React snapshot state
   const activeConfig =
     viewMode === "sandbox" ? sandboxDraft : challengeConfig;
   const [simSnapshot, setSimSnapshot] = useState<SimSnapshot>(() =>
@@ -155,7 +165,7 @@ export default function ExpoLanesApp() {
     }));
   }, []);
 
-  // Hydrate player state from localStorage asynchronously after initial hydration
+  // Hydrate player state from localStorage asynchronously
   useEffect(() => {
     let cancelled = false;
     queueMicrotask(() => {
@@ -257,6 +267,7 @@ export default function ExpoLanesApp() {
               simRef.current = fresh;
               setChallengeConfig(data.level.config);
               setOddsSummary(data.level.oddsSummary);
+              setSelectedBetLane(0);
               setViewMode("challenge");
               syncSimSnapshot(fresh);
               return;
@@ -274,6 +285,7 @@ export default function ExpoLanesApp() {
           simRef.current = fresh;
           setChallengeConfig(decoded);
           setOddsSummary(makeDefaultOdds(decoded.lanes.length));
+          setSelectedBetLane(0);
           setViewMode("challenge");
           syncSimSnapshot(fresh);
         }
@@ -297,6 +309,7 @@ export default function ExpoLanesApp() {
       setLockedBetLane(null);
       setLockedOdds(null);
       setSettlement(null);
+      setSelectedBetLane((prev) => (prev < cfg.lanes.length ? prev : 0));
       syncSimSnapshot(fresh);
     },
     [syncSimSnapshot]
@@ -315,7 +328,6 @@ export default function ExpoLanesApp() {
         const payout = bfMulNum(betCtx.stakeAmount, betCtx.odds);
         const netProfit = bfSubClampZero(payout, betCtx.stakeAmount);
         setBankroll((prev) => {
-          // Stake was already deducted on lock, so add full payout back!
           const updated = bfAdd(prev, payout);
           const nextSt = streak + 1;
           const nextMax = Math.max(maxStreak, nextSt);
@@ -416,7 +428,7 @@ export default function ExpoLanesApp() {
     resetMatchSimulation(lvl.config, false);
   };
 
-  const handleSelectPresetPill = (preset: MatchConfig) => {
+  const handleSelectPreset = (preset: MatchConfig) => {
     const record = publicLevels.find((l) => l.id === preset.id);
     const cfg = structuredClone(preset);
     setChallengeConfig(cfg);
@@ -426,14 +438,13 @@ export default function ExpoLanesApp() {
     resetMatchSimulation(cfg, false);
   };
 
-  const handleLockBetAndStart = async (
-    laneIndex: number,
-    stakeFraction: number
-  ) => {
-    const stakeAmt = bfMulNum(bankroll, Math.max(0.01, Math.min(1, stakeFraction)));
+  const handleLockBetAndStart = (laneIndex: number, stakeFraction: number) => {
+    const stakeAmt = bfMulNum(
+      bankroll,
+      Math.max(0.01, Math.min(1, stakeFraction))
+    );
     const oddAtLock = oddsSummary.odds[laneIndex] ?? 2.0;
 
-    // Deduct stake upfront
     const remaining = bfSubClampZero(bankroll, stakeAmt);
     setBankroll(remaining);
     persistPlayerProgress(remaining, streak, maxStreak);
@@ -451,7 +462,6 @@ export default function ExpoLanesApp() {
     simRef.current.status = "running";
     syncSimSnapshot(simRef.current);
 
-    // Asynchronously record bet on backend to update community parimutuel odds
     fetch(`/api/levels/${encodeURIComponent(challengeConfig.id)}/bet`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -485,10 +495,15 @@ export default function ExpoLanesApp() {
     persistPlayerProgress(fresh, 0, maxStreak);
   };
 
-  const handleNextPreset = () => {
-    const curIdx = PRESET_LEVELS.findIndex((p) => p.id === challengeConfig.id);
-    const nextPreset = PRESET_LEVELS[(curIdx + 1) % PRESET_LEVELS.length];
-    handleSelectPresetPill(nextPreset);
+  const currentPresetIdx = PRESET_LEVELS.findIndex(
+    (p) => p.id === challengeConfig.id
+  );
+
+  const handleStepPreset = (delta: number) => {
+    const baseIdx = currentPresetIdx >= 0 ? currentPresetIdx : 0;
+    const nextIdx =
+      (baseIdx + delta + PRESET_LEVELS.length) % PRESET_LEVELS.length;
+    handleSelectPreset(PRESET_LEVELS[nextIdx]);
   };
 
   const handleSwitchView = (nextView: AppViewMode) => {
@@ -535,9 +550,11 @@ export default function ExpoLanesApp() {
     syncSimSnapshot(sim);
   };
 
+  const headerSummary = getMatchHeaderSummary(activeConfig, formatStyle);
+
   return (
     <Box sx={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
-      {/* Top Digital Lab Navigation Bar */}
+      {/* Strictly Symmetric 3-Column Top Navigation Bar (56px exact) */}
       <AppBar
         position="sticky"
         color="default"
@@ -552,22 +569,25 @@ export default function ExpoLanesApp() {
           <Toolbar
             disableGutters
             sx={{
-              minHeight: { xs: 58, md: 64 },
-              display: "flex",
-              flexWrap: "wrap",
+              minHeight: "56px !important",
+              height: 56,
+              display: "grid",
+              gridTemplateColumns: { xs: "auto 1fr auto", md: "1fr auto 1fr" },
               alignItems: "center",
-              justifyContent: "space-between",
               gap: 1.5,
-              py: 0.75,
             }}
           >
-            {/* Brand Title (Single h1 for SEO) */}
-            <Stack direction="row" spacing={1.25} sx={{ alignItems: "center" }}>
+            {/* Left: Clean Brand Title */}
+            <Stack
+              direction="row"
+              spacing={1.1}
+              sx={{ alignItems: "center", justifySelf: "start" }}
+            >
               <Box
                 sx={{
-                  width: 30,
-                  height: 30,
-                  borderRadius: 1.5,
+                  width: 28,
+                  height: 28,
+                  borderRadius: 1.25,
                   bgcolor: "primary.main",
                   color: "#061018",
                   display: "flex",
@@ -575,156 +595,235 @@ export default function ExpoLanesApp() {
                   justifyContent: "center",
                   fontFamily: "var(--font-mono)",
                   fontWeight: 800,
-                  fontSize: "0.9rem",
+                  fontSize: "0.86rem",
                 }}
               >
                 xⁿ
               </Box>
-              <Box>
-                <Typography
-                  component="h1"
-                  sx={{
-                    fontSize: { xs: "1rem", sm: "1.12rem" },
-                    fontWeight: 800,
-                    letterSpacing: "-0.02em",
-                    lineHeight: 1.15,
-                  }}
-                >
-                  Expo-Lanes
-                </Typography>
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                  sx={{ display: { xs: "none", sm: "block" }, lineHeight: 1.1 }}
-                >
-                  纯数字指数赛道实验室
-                </Typography>
-              </Box>
+              <Typography
+                component="h1"
+                sx={{
+                  display: { xs: "none", sm: "block" },
+                  fontSize: "1.02rem",
+                  fontWeight: 800,
+                  letterSpacing: "-0.02em",
+                }}
+              >
+                Expo-Lanes
+              </Typography>
             </Stack>
 
-            {/* Primary Mode Tabs */}
-            <Tabs
+            {/* Center: Segmented Mode Switcher */}
+            <ToggleButtonGroup
+              size="small"
+              exclusive
               value={viewMode}
-              onChange={(_, v) => handleSwitchView(v)}
-              textColor="primary"
-              indicatorColor="primary"
-              sx={{ minHeight: 42 }}
+              onChange={(_, v) => {
+                if (v) handleSwitchView(v);
+              }}
+              sx={{
+                justifySelf: "center",
+                height: 36,
+                "& .MuiToggleButton-root": {
+                  px: { xs: 1.4, sm: 2.2 },
+                  fontSize: "0.84rem",
+                  fontWeight: 700,
+                },
+              }}
             >
-              <Tab
-                id="nav-tab-challenge"
-                value="challenge"
-                icon={<CasinoRoundedIcon fontSize="small" />}
-                iconPosition="start"
-                label="竞猜挑战"
-              />
-              <Tab
-                id="nav-tab-sandbox"
-                value="sandbox"
-                icon={<ScienceRoundedIcon fontSize="small" />}
-                iconPosition="start"
-                label="沙盒工坊"
-              />
-              <Tab
-                id="nav-tab-browser"
-                value="browser"
-                icon={<ExploreRoundedIcon fontSize="small" />}
-                iconPosition="start"
-                label="挑战广场"
-              />
-            </Tabs>
+              <ToggleButton id="nav-tab-challenge" value="challenge">
+                竞猜挑战
+              </ToggleButton>
+              <ToggleButton id="nav-tab-sandbox" value="sandbox">
+                沙盒工坊
+              </ToggleButton>
+              <ToggleButton id="nav-tab-browser" value="browser">
+                挑战广场
+              </ToggleButton>
+            </ToggleButtonGroup>
 
-            {/* Right Controls: Bankroll, Unit Switcher, Sound, Theme, Leaderboard */}
-            <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
-              <Chip
-                id="header-bankroll-chip"
-                color="secondary"
-                variant={bfCmp(bankroll, bf(1000)) > 0 ? "filled" : "outlined"}
-                onClick={() => setLeaderboardOpen(true)}
-                label={`筹码 ${formatBigFloat(bankroll, formatStyle, 2)} · ${streak}连胜`}
-                sx={{ fontFamily: "var(--font-mono)", cursor: "pointer" }}
-              />
-
-              <ToggleButtonGroup
-                size="small"
-                exclusive
-                value={formatStyle}
-                onChange={(_, val) => {
-                  if (val) {
-                    setFormatStyle(val);
-                    try {
-                      window.localStorage.setItem(LS_FORMAT, val);
-                    } catch {
-                      // ignore
-                    }
-                  }
-                }}
-                sx={{ display: { xs: "none", md: "inline-flex" } }}
-              >
-                <ToggleButton value="intl" sx={{ px: 1, py: 0.35, fontSize: "0.74rem" }}>
-                  K/M/B
-                </ToggleButton>
-                <ToggleButton value="zh" sx={{ px: 1, py: 0.35, fontSize: "0.74rem" }}>
-                  万/亿
-                </ToggleButton>
-                <ToggleButton value="sci" sx={{ px: 1, py: 0.35, fontSize: "0.74rem" }}>
-                  1eN
-                </ToggleButton>
-              </ToggleButtonGroup>
-
-              <Tooltip title={soundOn ? "关闭碰撞音阶音效" : "开启碰撞音阶音效"}>
-                <IconButton
-                  id="toggle-sound-btn"
-                  size="small"
-                  color={soundOn ? "primary" : "default"}
-                  onClick={() => {
-                    const next = !soundOn;
-                    setSoundOn(next);
-                    soundEngine.setEnabled(next);
-                  }}
-                >
-                  {soundOn ? (
-                    <VolumeUpRoundedIcon fontSize="small" />
-                  ) : (
-                    <VolumeOffRoundedIcon fontSize="small" />
-                  )}
-                </IconButton>
-              </Tooltip>
-
-              <Tooltip
-                title={
-                  colorMode === "dark" ? "切换至浅色白昼主题" : "切换至深色实验室主题"
-                }
-              >
-                <IconButton
-                  id="toggle-theme-btn"
-                  size="small"
-                  onClick={toggleColorMode}
-                >
-                  {colorMode === "dark" ? (
-                    <LightModeRoundedIcon fontSize="small" />
-                  ) : (
-                    <DarkModeRoundedIcon fontSize="small" />
-                  )}
-                </IconButton>
-              </Tooltip>
-
+            {/* Right: Bankroll/Leaderboard + Clean Preferences Popover */}
+            <Stack
+              direction="row"
+              spacing={1}
+              sx={{ alignItems: "center", justifySelf: "end" }}
+            >
               <Button
                 id="open-leaderboard-btn"
                 size="small"
                 variant="outlined"
+                color="secondary"
                 startIcon={<EmojiEventsRoundedIcon fontSize="small" />}
                 onClick={() => setLeaderboardOpen(true)}
-                sx={{ display: { xs: "none", sm: "inline-flex" } }}
+                className="tabular-nums"
+                sx={{
+                  height: 36,
+                  px: 1.5,
+                  fontWeight: 700,
+                  fontFamily: "var(--font-mono)",
+                }}
               >
-                排行榜
+                {formatBigFloat(bankroll, formatStyle, 2)}
+                {streak > 0 ? ` · ${streak}连胜` : ""}
               </Button>
+
+              <IconButton
+                id="open-preferences-btn"
+                size="small"
+                onClick={(e) => setPrefsAnchor(e.currentTarget)}
+                aria-label="显示与音效偏好"
+                sx={{
+                  width: 36,
+                  height: 36,
+                  border: "1px solid",
+                  borderColor: "divider",
+                  borderRadius: 1.5,
+                }}
+              >
+                <TuneRoundedIcon fontSize="small" />
+              </IconButton>
             </Stack>
           </Toolbar>
         </Container>
       </AppBar>
 
+      {/* Clean Preferences Popover (Units, Sound, Theme) */}
+      <Popover
+        open={Boolean(prefsAnchor)}
+        anchorEl={prefsAnchor}
+        onClose={() => setPrefsAnchor(null)}
+        anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+        transformOrigin={{ vertical: "top", horizontal: "right" }}
+        slotProps={{
+          paper: {
+            sx: { mt: 1, p: 2, width: 268, borderRadius: 2 },
+          },
+        }}
+      >
+        <Stack spacing={1.75}>
+          <Box>
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ display: "block", mb: 0.75, fontWeight: 700 }}
+            >
+              大数显示格式
+            </Typography>
+            <ToggleButtonGroup
+              size="small"
+              fullWidth
+              exclusive
+              value={formatStyle}
+              onChange={(_, val) => {
+                if (val) {
+                  setFormatStyle(val);
+                  try {
+                    window.localStorage.setItem(LS_FORMAT, val);
+                  } catch {
+                    // ignore
+                  }
+                }
+              }}
+            >
+              <ToggleButton value="intl">K/M/B</ToggleButton>
+              <ToggleButton value="zh">万/亿</ToggleButton>
+              <ToggleButton value="sci">1eN</ToggleButton>
+            </ToggleButtonGroup>
+          </Box>
+
+          <Divider />
+
+          <Stack
+            direction="row"
+            sx={{ alignItems: "center", justifyContent: "space-between" }}
+          >
+            <Typography variant="body2">碰撞音阶音效</Typography>
+            <Switch
+              id="toggle-sound-switch"
+              size="small"
+              checked={soundOn}
+              onChange={(e) => {
+                const next = e.target.checked;
+                setSoundOn(next);
+                soundEngine.setEnabled(next);
+              }}
+            />
+          </Stack>
+
+          <Stack
+            direction="row"
+            sx={{ alignItems: "center", justifyContent: "space-between" }}
+          >
+            <Typography variant="body2">界面主题模式</Typography>
+            <ToggleButtonGroup
+              size="small"
+              exclusive
+              value={colorMode}
+              onChange={(_, val) => {
+                if (val === "dark" || val === "light") setColorMode(val);
+              }}
+            >
+              <ToggleButton value="dark" sx={{ px: 1.25, py: 0.3 }}>
+                深色
+              </ToggleButton>
+              <ToggleButton value="light" sx={{ px: 1.25, py: 0.3 }}>
+                浅色
+              </ToggleButton>
+            </ToggleButtonGroup>
+          </Stack>
+        </Stack>
+      </Popover>
+
+      {/* Preset Selector Dropdown Menu */}
+      <Menu
+        anchorEl={levelMenuAnchor}
+        open={Boolean(levelMenuAnchor)}
+        onClose={() => setLevelMenuAnchor(null)}
+        slotProps={{ paper: { sx: { mt: 0.75, minWidth: 300 } } }}
+      >
+        {PRESET_LEVELS.map((preset) => {
+          const solved = Boolean(solvedIds[preset.id]);
+          const selected = preset.id === challengeConfig.id;
+          return (
+            <MenuItem
+              key={preset.id}
+              selected={selected}
+              onClick={() => {
+                handleSelectPreset(preset);
+                setLevelMenuAnchor(null);
+              }}
+            >
+              <ListItemIcon sx={{ minWidth: 28 }}>
+                {solved ? (
+                  <CheckRoundedIcon fontSize="small" color="success" />
+                ) : null}
+              </ListItemIcon>
+              <ListItemText
+                primary={preset.title}
+                slotProps={{
+                  primary: { sx: { fontSize: "0.86rem", fontWeight: selected ? 700 : 500 } },
+                }}
+              />
+              {preset.difficulty && (
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{ ml: 2 }}
+                >
+                  {preset.difficulty}
+                </Typography>
+              )}
+            </MenuItem>
+          );
+        })}
+      </Menu>
+
       {/* Main Content Stage */}
-      <Container maxWidth="xl" component="main" sx={{ py: 2.5, flexGrow: 1 }}>
+      <Container
+        maxWidth={viewMode === "sandbox" ? "xl" : "lg"}
+        component="main"
+        sx={{ py: 2.5, flexGrow: 1 }}
+      >
         {viewMode === "browser" ? (
           <ChallengeBrowser
             levels={publicLevels}
@@ -735,102 +834,286 @@ export default function ExpoLanesApp() {
             onSelectForChallenge={handleSelectChallenge}
             onLoadIntoSandbox={handleLoadIntoSandbox}
           />
-        ) : (
+        ) : viewMode === "challenge" ? (
+          /* ================= CHALLENGE MODE: Clean Single-Focus Symmetric Stage ================= */
           <Stack spacing={2}>
-            {/* Preset Quick Selector Bar in Challenge Mode */}
-            {viewMode === "challenge" && (
-              <Box
+            {/* Block 1: Level Stepper + Shared Match Goal Header */}
+            <Paper sx={{ px: { xs: 2, md: 2.5 }, py: 1.75 }}>
+              <Stack
+                direction={{ xs: "column", md: "row" }}
+                spacing={1.25}
                 sx={{
-                  display: "flex",
-                  gap: 0.85,
-                  overflowX: "auto",
-                  pb: 0.5,
+                  alignItems: { xs: "flex-start", md: "center" },
+                  justifyContent: "space-between",
                 }}
               >
-                {PRESET_LEVELS.map((preset, idx) => {
-                  const active = challengeConfig.id === preset.id;
-                  const solved = Boolean(solvedIds[preset.id]);
-                  return (
+                {/* Left: Prev / Level Title / Next + Dropdown */}
+                <Stack direction="row" spacing={0.75} sx={{ alignItems: "center" }}>
+                  <IconButton
+                    id="prev-preset-btn"
+                    size="small"
+                    onClick={() => handleStepPreset(-1)}
+                    sx={{
+                      width: 32,
+                      height: 32,
+                      border: "1px solid",
+                      borderColor: "divider",
+                      borderRadius: 1.25,
+                    }}
+                  >
+                    <ChevronLeftRoundedIcon fontSize="small" />
+                  </IconButton>
+
+                  <Button
+                    id="open-preset-menu-btn"
+                    color="inherit"
+                    endIcon={<KeyboardArrowDownRoundedIcon />}
+                    onClick={(e) => setLevelMenuAnchor(e.currentTarget)}
+                    sx={{
+                      px: 1.25,
+                      height: 32,
+                      fontWeight: 800,
+                      fontSize: "0.96rem",
+                    }}
+                  >
+                    {challengeConfig.title}
+                  </Button>
+
+                  <IconButton
+                    id="next-preset-btn"
+                    size="small"
+                    onClick={() => handleStepPreset(1)}
+                    sx={{
+                      width: 32,
+                      height: 32,
+                      border: "1px solid",
+                      borderColor: "divider",
+                      borderRadius: 1.25,
+                    }}
+                  >
+                    <ChevronRightRoundedIcon fontSize="small" />
+                  </IconButton>
+
+                  {challengeConfig.difficulty && (
                     <Chip
-                      key={preset.id}
-                      id={`preset-pill-${idx + 1}`}
-                      clickable
-                      color={active ? "primary" : solved ? "success" : "default"}
-                      variant={active ? "filled" : "outlined"}
-                      label={
-                        solved
-                          ? `✓ ${preset.title.split(" · ")[0]} ${preset.title.split(" · ")[1] ?? ""}`
-                          : preset.title
-                      }
-                      onClick={() => handleSelectPresetPill(preset)}
-                      sx={{ flexShrink: 0 }}
+                      size="small"
+                      variant="outlined"
+                      label={challengeConfig.difficulty}
+                      sx={{ height: 24, ml: 0.5 }}
                     />
-                  );
-                })}
-              </Box>
-            )}
+                  )}
+                </Stack>
 
-            {/* Split Layout: Arena + Telemetry on Left, Betting / Sandbox Controls on Right */}
-            <Box
-              sx={{
-                display: "grid",
-                gridTemplateColumns: {
-                  xs: "1fr",
-                  lg: "minmax(0, 1.55fr) minmax(360px, 0.95fr)",
-                },
-                gap: 2.25,
-                alignItems: "start",
-              }}
-            >
-              <Stack spacing={2}>
-                <RaceArena
-                  simState={simSnapshot.sim}
-                  formatStyle={formatStyle}
-                  speedMultiplier={speedMultiplier}
-                  onSpeedChange={setSpeedMultiplier}
-                  onTogglePlay={handleTogglePlay}
-                  onReset={() => resetMatchSimulation(activeConfig, false)}
-                  lockedBetLane={viewMode === "challenge" ? lockedBetLane : null}
-                  lockedOdds={viewMode === "challenge" ? lockedOdds : null}
-                />
-
-                <TelemetryChart
-                  telemetry={simSnapshot.telemetry}
-                  lanes={activeConfig.lanes}
-                />
-              </Stack>
-
-              <Box sx={{ position: { lg: "sticky" }, top: { lg: 80 } }}>
-                {viewMode === "challenge" ? (
-                  <BettingPanel
-                    config={challengeConfig}
-                    simStatus={simSnapshot.status}
-                    winnerLaneIndex={simSnapshot.winnerLaneIndex}
-                    oddsSummary={oddsSummary}
-                    bankroll={bankroll}
-                    streak={streak}
-                    maxStreak={maxStreak}
-                    formatStyle={formatStyle}
-                    lockedBetLane={lockedBetLane}
-                    settlement={settlement}
-                    onLockBetAndStart={handleLockBetAndStart}
-                    onSpectateStart={handleSpectateStart}
-                    onResetBankroll={handleResetBankroll}
-                    onNextPreset={handleNextPreset}
-                    onOpenInSandbox={() => handleLoadIntoSandbox(challengeConfig)}
-                  />
-                ) : (
-                  <SandboxEditor
-                    draft={sandboxDraft}
-                    onDraftChange={handleSandboxDraftChange}
-                    onPublishedLevel={(created) => {
-                      setPublicLevels((prev) => [created, ...prev]);
+                {/* Right: Unified Match Rule & Shared Wall Summary */}
+                <Stack
+                  direction="row"
+                  spacing={0.85}
+                  useFlexGap
+                  sx={{ alignItems: "center", flexWrap: "wrap" }}
+                >
+                  <Chip
+                    size="small"
+                    label={headerSummary.ruleBadge}
+                    sx={{
+                      height: 26,
+                      fontWeight: 600,
+                      fontFamily: "var(--font-mono)",
                     }}
                   />
+                  {headerSummary.sharedWallBadge && (
+                    <Chip
+                      size="small"
+                      variant="outlined"
+                      label={headerSummary.sharedWallBadge}
+                      sx={{
+                        height: 26,
+                        fontFamily: "var(--font-mono)",
+                      }}
+                    />
+                  )}
+                </Stack>
+              </Stack>
+
+              {/* Concise 1-line Question Description + Coupling Note */}
+              <Stack
+                direction={{ xs: "column", sm: "row" }}
+                spacing={1}
+                sx={{
+                  mt: 1,
+                  pt: 1,
+                  borderTop: "1px solid",
+                  borderColor: "divider",
+                  alignItems: { xs: "flex-start", sm: "center" },
+                  justifyContent: "space-between",
+                }}
+              >
+                <Typography variant="body2" color="text.secondary" sx={{ fontSize: "0.84rem" }}>
+                  {challengeConfig.description}
+                </Typography>
+
+                {headerSummary.couplingBadge && (
+                  <Stack
+                    direction="row"
+                    spacing={0.5}
+                    sx={{ alignItems: "center", flexShrink: 0 }}
+                  >
+                    <BoltRoundedIcon sx={{ fontSize: 16 }} color="warning" />
+                    <Typography
+                      variant="caption"
+                      color="warning.main"
+                      className="tabular-nums"
+                      sx={{ fontWeight: 700 }}
+                    >
+                      {headerSummary.couplingBadge}
+                      {challengeConfig.coupling.sharedPoolEnabled
+                        ? ` · 当前奖池 +${formatBigFloat(simSnapshot.sim.sharedPoolValue, formatStyle)}`
+                        : ""}
+                    </Typography>
+                  </Stack>
                 )}
-              </Box>
+              </Stack>
+            </Paper>
+
+            {/* Block 2: Strictly Aligned Parallel Lane Stage */}
+            <RaceArena
+              mode="challenge"
+              simState={simSnapshot.sim}
+              wallsIdentical={headerSummary.wallsIdentical}
+              formatStyle={formatStyle}
+              oddsSummary={oddsSummary}
+              selectedBetLane={selectedBetLane}
+              lockedBetLane={lockedBetLane}
+              lockedOdds={lockedOdds}
+              onSelectBetLane={setSelectedBetLane}
+            />
+
+            {/* Block 3: Unified Horizontal Action Dock */}
+            <ActionDock
+              mode="challenge"
+              config={challengeConfig}
+              simState={simSnapshot.sim}
+              formatStyle={formatStyle}
+              speedMultiplier={speedMultiplier}
+              onSpeedChange={setSpeedMultiplier}
+              onTogglePlay={handleTogglePlay}
+              onReset={() => resetMatchSimulation(challengeConfig, false)}
+              oddsSummary={oddsSummary}
+              bankroll={bankroll}
+              selectedBetLane={selectedBetLane}
+              lockedBetLane={lockedBetLane}
+              lockedOdds={lockedOdds}
+              settlement={settlement}
+              onLockBetAndStart={handleLockBetAndStart}
+              onSpectateStart={handleSpectateStart}
+              onResetBankroll={handleResetBankroll}
+              onNextPreset={() => handleStepPreset(1)}
+              onOpenInSandbox={() => handleLoadIntoSandbox(challengeConfig)}
+            />
+
+            {/* Block 4: Collapsible Telemetry Drawer (Collapsed by default) */}
+            <Box>
+              <Button
+                id="toggle-telemetry-btn"
+                size="small"
+                color="inherit"
+                startIcon={<ShowChartRoundedIcon fontSize="small" color="primary" />}
+                endIcon={
+                  chartExpanded ? (
+                    <KeyboardArrowUpRoundedIcon fontSize="small" />
+                  ) : (
+                    <KeyboardArrowDownRoundedIcon fontSize="small" />
+                  )
+                }
+                onClick={() => setChartExpanded((v) => !v)}
+                sx={{ color: "text.secondary", fontWeight: 600 }}
+              >
+                {chartExpanded
+                  ? "收起实时对数交汇曲线"
+                  : "查看实时对数交汇曲线（log10 输出 vs 墙压）"}
+              </Button>
+              <Collapse in={chartExpanded} unmountOnExit>
+                <Box sx={{ mt: 1 }}>
+                  <TelemetryChart
+                    telemetry={simSnapshot.telemetry}
+                    lanes={challengeConfig.lanes}
+                  />
+                </Box>
+              </Collapse>
             </Box>
           </Stack>
+        ) : (
+          /* ================= SANDBOX MODE: Matched-Height 2-Column Studio ================= */
+          <Box
+            sx={{
+              display: "grid",
+              gridTemplateColumns: {
+                xs: "1fr",
+                lg: "minmax(0, 1.4fr) 420px",
+              },
+              gap: 2,
+              alignItems: "start",
+            }}
+          >
+            <Stack spacing={2}>
+              <RaceArena
+                mode="sandbox"
+                simState={simSnapshot.sim}
+                wallsIdentical={headerSummary.wallsIdentical}
+                formatStyle={formatStyle}
+                lockedBetLane={null}
+                lockedOdds={null}
+              />
+
+              <ActionDock
+                mode="sandbox"
+                config={sandboxDraft}
+                simState={simSnapshot.sim}
+                formatStyle={formatStyle}
+                speedMultiplier={speedMultiplier}
+                onSpeedChange={setSpeedMultiplier}
+                onTogglePlay={handleTogglePlay}
+                onReset={() => resetMatchSimulation(sandboxDraft, false)}
+              />
+
+              <Box>
+                <Button
+                  id="sandbox-toggle-telemetry-btn"
+                  size="small"
+                  color="inherit"
+                  startIcon={<ShowChartRoundedIcon fontSize="small" color="primary" />}
+                  endIcon={
+                    chartExpanded ? (
+                      <KeyboardArrowUpRoundedIcon fontSize="small" />
+                    ) : (
+                      <KeyboardArrowDownRoundedIcon fontSize="small" />
+                    )
+                  }
+                  onClick={() => setChartExpanded((v) => !v)}
+                  sx={{ color: "text.secondary", fontWeight: 600 }}
+                >
+                  {chartExpanded
+                    ? "收起实时对数交汇曲线"
+                    : "查看实时对数交汇曲线（log10 输出 vs 墙压）"}
+                </Button>
+                <Collapse in={chartExpanded} unmountOnExit>
+                  <Box sx={{ mt: 1 }}>
+                    <TelemetryChart
+                      telemetry={simSnapshot.telemetry}
+                      lanes={sandboxDraft.lanes}
+                    />
+                  </Box>
+                </Collapse>
+              </Box>
+            </Stack>
+
+            <SandboxEditor
+              draft={sandboxDraft}
+              onDraftChange={handleSandboxDraftChange}
+              onPublishedLevel={(created) => {
+                setPublicLevels((prev) => [created, ...prev]);
+              }}
+            />
+          </Box>
         )}
       </Container>
 
