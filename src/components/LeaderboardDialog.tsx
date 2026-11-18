@@ -50,7 +50,14 @@ export default function LeaderboardDialog({
   formatStyle,
 }: LeaderboardDialogProps) {
   const [tab, setTab] = useState<"chips" | "streak">("chips");
-  const [nickname, setNickname] = useState("");
+  const [nickname, setNickname] = useState(() => {
+    if (typeof window === "undefined") return "";
+    try {
+      return window.localStorage.getItem(NICKNAME_KEY) || "";
+    } catch {
+      return "";
+    }
+  });
   const [topChips, setTopChips] = useState<LeaderboardEntry[]>([]);
   const [topStreaks, setTopStreaks] = useState<LeaderboardEntry[]>([]);
   const [backendMode, setBackendMode] = useState<"upstash" | "memory">("memory");
@@ -58,17 +65,7 @@ export default function LeaderboardDialog({
   const [feedback, setFeedback] = useState<string | null>(null);
 
   useEffect(() => {
-    try {
-      const saved = window.localStorage.getItem(NICKNAME_KEY);
-      if (saved) setNickname(saved);
-    } catch {
-      // ignore
-    }
-  }, []);
-
-  useEffect(() => {
     if (!open) return;
-    setFeedback(null);
     fetch("/api/leaderboard")
       .then((r) => r.json())
       .then((data) => {
@@ -78,6 +75,11 @@ export default function LeaderboardDialog({
       })
       .catch(() => {});
   }, [open]);
+
+  const handleDialogClose = () => {
+    setFeedback(null);
+    onClose();
+  };
 
   const handleSubmit = async () => {
     const clean = nickname.trim();
@@ -123,7 +125,7 @@ export default function LeaderboardDialog({
   const rows = tab === "chips" ? topChips : topStreaks;
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+    <Dialog open={open} onClose={handleDialogClose} maxWidth="sm" fullWidth>
       <DialogTitle sx={{ pb: 1 }}>
         <Stack
           direction="row"
@@ -138,7 +140,7 @@ export default function LeaderboardDialog({
               label={backendMode === "upstash" ? "Upstash Redis 实时榜" : "本地/内存榜"}
             />
           </Stack>
-          <IconButton onClick={onClose} size="small" aria-label="关闭排行榜">
+          <IconButton onClick={handleDialogClose} size="small" aria-label="关闭排行榜">
             <CloseRoundedIcon />
           </IconButton>
         </Stack>

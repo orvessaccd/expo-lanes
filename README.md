@@ -1,36 +1,65 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Expo-Lanes · 纯数字指数赛道竞速实验室
 
-## Getting Started
+> **100% 纯数学算符碰撞 · 零 RPG 技能 · `BigFloat` 超大数确定性物理引擎 · 全民动态赔率竞猜与沙盒出题社区**
 
-First, run the development server:
+**Expo-Lanes** 是一个将「指数增长、复利自增、单次限流（Damage Cap）、次方奇点与分摊动态赔率」融合在多赛道实时物理竞技场中的硬核纯数字竞速 Web 应用。所有赛道的胜负完全由**球体物理几何、算符门与数学递推公式**决定，绝不含任何冰冻、护盾、中毒等传统 RPG 技能词条。
+
+---
+
+## ✨ 核心特性
+
+### 1. 纯数字与算符碰撞体系（Zero RPG Skills）
+- **球体与触发器**：自定义初始球数、单球初始数字、顶部每秒补球速率、撞墙寿命、余量穿透比例（Overkill Penetration），以及四类纯数字指数触发器（每撞墙 $K$ 次 / 每碰边界 $K$ 次 / 每存活 $T$ 秒 / 每破墙 $K$ 层 $\rightarrow$ 球面数字或球数执行 `+`、`×`、`^`）。
+- **中段算符门与几何钉阵**：支持可调频率横移单门、左右双选门（`+N`、`-N`、`×N`、`÷N`、`^N`、`√`、`分裂×N / 球值÷N`、`合并1球`、`满门槛 T 则 ×N`）及纯物理弹珠钉阵（Pachinko Pins）。
+- **底层数字墙博弈**：支持等差（`+`）、等比（`×`）、双指数次方（`^`）层间递增，墙体每秒复利自增（若推进增长率低于复利自增率将永不破墙），以及专治巨型单球流派的**单球撞击限流墙**（固定上限 `-K` 或最大墙值百分比 `-X%`）。
+- **跨赛道纯数值耦合**：支持击碎墙层时向对手底层墙注入 `X%` 额外数值，以及全赛道共享的复利里程碑数字池争夺。
+
+### 2. 超越 `Number.MAX_VALUE` 的确定性双核引擎
+- **`BigFloat` 超大数核**（`src/engine/bigNumber.ts`）：采用 `{ sign, m, e }` 十进制尾数+指数科学记数结构，支持高达 `10^10,000,000` 量级的精确四则、实数次幂与开方运算，彻底杜绝原生 `1.79e308` 溢出 `Infinity`，内置国际简写（`K/M/B/T`）、中文单位（`万/亿/兆/京/垓`）与科学记数法（`1eN`）一键切换。
+- **120Hz 固定步长 + `Mulberry32` 确定性随机**（`src/engine/simulation.ts`）：物理步进与渲染帧率完全解耦，支持 `0.5x / 1x / 2x / 4x` 无损倍速；相同种子（`seed`）在任意设备与倍速下 100% 复现完全一致的胜负结果。
+- **`×N` 智能叠层渲染**：单赛道同屏物理实体上限自动维持在 70 颗以内，超出部分合并为高能叠层球 `×N`，并在命中限流墙时严格按 `N × min(单球值, 限流上限)` 精确结算，保证万亿球海依然 60FPS 满帧运行。
+
+### 3. 双核玩法闭环
+- **盲猜梭哈挑战模式**：初始 `1,000` 筹码，支持按比例（`10% / 25% / 50% / MAX`）押注滚雪球冲击指数级复利财富榜；内置 **10 道经无头引擎校准的反直觉纯数学关卡**，赛后自动揭晓指数超越点与数学原理复盘。
+- **沙盒实验工坊 & 一键分享**：支持 2 或 3 赛道、4 种胜负赛制（破底竞速+限时兜底、无限层限时冲刺、纯破底无时限、双向推线淘汰制）、6 种流派模板一键套用、一键发布短链（`?level=<id>`）及免数据库纯前端 Base64URL 编码分享（`?s=<payload>`）。
+
+---
+
+## 🛠️ 技术栈
+
+- **框架**：Next.js 16 (App Router + TypeScript + Cache Components)
+- **组件与视觉**：MUI (`@mui/material` v9 + Emotion)，定制「数字实验室（Digital Lab）」深浅双色主题，搭配 HTML5 高分屏 Canvas 渲染器与交互式对数遥测 SVG 曲线图
+- **音效**：Web Audio API 纯代码合成五声音阶碰撞反馈（默认静音，顶栏一键开启）
+- **存储与 API**：`@upstash/redis`（未配置环境变量时自动无缝降级至本地文件/内存存储，开箱即跑）
+
+---
+
+## 🚀 本地开发与验证
 
 ```bash
+# 1. 安装依赖
+npm install
+
+# 2. 启动本地开发服务器
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+
+# 3. 运行 BigFloat 超大数、×N 限流墙结算、120Hz 确定性与题库单元测试
+npm test
+
+# 4. 运行 ESLint 代码规范检查与生产构建验证
+npm run lint
+npm run build
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+---
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## ☁️ 部署指南（Vercel + Upstash Redis）
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+1. 将本仓库导入 **Vercel**，Framework Preset 选择 **Next.js**。
+2. （可选，推荐生产环境开启）在 Vercel Marketplace 或 Upstash 控制台创建一个 Serverless Redis 实例，在项目环境变量中配置：
+   ```env
+   UPSTASH_REDIS_REST_URL="https://your-instance.upstash.io"
+   UPSTASH_REDIS_REST_TOKEN="your-upstash-rest-token"
+   ```
+   > 若未配置上述环境变量，服务端将自动启用本地/内存兜底存储，内置 10 道数学关卡、动态赔率计算、排行榜体验与 `?s=...` 链接分享均可正常使用。
+3. 点击 **Deploy** 即可完成全球边缘部署。

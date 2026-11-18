@@ -65,7 +65,7 @@ export interface GateBoxRect {
  * Deterministic inline Mulberry32 step on integer state stored inside SimulationState
  */
 function nextRng(stateObj: { rngState: number }): number {
-  let s = (stateObj.rngState + 0x6d2b79f5) | 0;
+  const s = (stateObj.rngState + 0x6d2b79f5) | 0;
   stateObj.rngState = s;
   let t = Math.imul(s ^ (s >>> 15), 1 | s);
   t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
@@ -79,7 +79,7 @@ export interface InternalSimState extends SimulationState {
 }
 
 function nextVisualRand(state: InternalSimState): number {
-  let s = (state.visualRngState + 0x9e3779b9) | 0;
+  const s = (state.visualRngState + 0x9e3779b9) | 0;
   state.visualRngState = s;
   let t = Math.imul(s ^ (s >>> 15), 1 | s);
   t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
@@ -259,7 +259,7 @@ export function formatGateSlotLabel(
 }
 
 function clampSpeedVector(vx: number, vy: number, targetMax = MAX_BALL_SPEED) {
-  let speed = Math.hypot(vx, vy);
+  const speed = Math.hypot(vx, vy);
   if (speed < 1e-5) {
     return { vx: 40, vy: 260 };
   }
@@ -813,7 +813,7 @@ function settleBallWallImpact(
   const wallCfg = lane.config.wall;
   const penetration = Math.max(0, Math.min(1, lane.config.ball.overflowPenetration));
 
-  let remainingStack = ball.stackCount;
+  const remainingStack = ball.stackCount;
   let carryOverPool = BF_ZERO;
   let useCarryPool = false;
   let layersBrokenThisHit = 0;

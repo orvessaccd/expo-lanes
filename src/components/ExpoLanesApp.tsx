@@ -82,6 +82,24 @@ interface LockedBetContext {
   settled: boolean;
 }
 
+interface SimSnapshot {
+  sim: SimulationState;
+  telemetry: SimulationState["telemetry"];
+  status: SimulationState["status"];
+  winnerLaneIndex: number | null;
+  tick: number;
+}
+
+function makeSimSnapshot(sim: SimulationState, tick = 0): SimSnapshot {
+  return {
+    sim,
+    telemetry: [...sim.telemetry],
+    status: sim.status,
+    winnerLaneIndex: sim.winnerLaneIndex,
+    tick,
+  };
+}
+
 export default function ExpoLanesApp() {
   const { mode: colorMode, toggleColorMode } = useColorMode();
 
@@ -99,7 +117,7 @@ export default function ExpoLanesApp() {
 
   // Levels & Active Match
   const [publicLevels, setPublicLevels] = useState<LevelWithOdds[]>([]);
-  const [levelsLoading, setLevelsLoading] = useState<boolean>(false);
+  const [levelsLoading, setLevelsLoading] = useState<boolean>(true);
   const [challengeConfig, setChallengeConfig] = useState<MatchConfig>(() =>
     structuredClone(PRESET_LEVELS[0])
   );
@@ -116,30 +134,52 @@ export default function ExpoLanesApp() {
   const [settlement, setSettlement] = useState<BetSettlementInfo | null>(null);
   const lockedBetRef = useRef<LockedBetContext | null>(null);
 
-  // Simulation mutable engine ref + render tick state
+  // Simulation mutable engine ref + React snapshot state for pure render
   const activeConfig =
     viewMode === "sandbox" ? sandboxDraft : challengeConfig;
-  const simRef = useRef<SimulationState>(createSimulation(activeConfig));
-  const [, setRenderTick] = useState<number>(0);
+  const [simSnapshot, setSimSnapshot] = useState<SimSnapshot>(() =>
+    makeSimSnapshot(createSimulation(PRESET_LEVELS[0]), 0)
+  );
+  const simRef = useRef<SimulationState>(simSnapshot.sim);
 
-  // Hydrate player state from localStorage
+  const syncSimSnapshot = useCallback((sim: SimulationState) => {
+    setSimSnapshot((prev) => ({
+      sim,
+      telemetry:
+        prev.sim === sim && prev.telemetry.length === sim.telemetry.length
+          ? prev.telemetry
+          : [...sim.telemetry],
+      status: sim.status,
+      winnerLaneIndex: sim.winnerLaneIndex,
+      tick: (prev.tick + 1) % 1_000_000,
+    }));
+  }, []);
+
+  // Hydrate player state from localStorage asynchronously after initial hydration
   useEffect(() => {
-    try {
-      const savedBank = window.localStorage.getItem(LS_BANKROLL);
-      if (savedBank) setBankroll(bf(savedBank));
-      const savedStreak = Number(window.localStorage.getItem(LS_STREAK) || 0);
-      if (Number.isFinite(savedStreak)) setStreak(savedStreak);
-      const savedMax = Number(window.localStorage.getItem(LS_MAX_STREAK) || 0);
-      if (Number.isFinite(savedMax)) setMaxStreak(savedMax);
-      const savedSolved = window.localStorage.getItem(LS_SOLVED);
-      if (savedSolved) setSolvedIds(JSON.parse(savedSolved));
-      const savedFmt = window.localStorage.getItem(LS_FORMAT);
-      if (savedFmt === "intl" || savedFmt === "zh" || savedFmt === "sci") {
-        setFormatStyle(savedFmt);
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      try {
+        const savedBank = window.localStorage.getItem(LS_BANKROLL);
+        if (savedBank) setBankroll(bf(savedBank));
+        const savedStreak = Number(window.localStorage.getItem(LS_STREAK) || 0);
+        if (Number.isFinite(savedStreak)) setStreak(savedStreak);
+        const savedMax = Number(window.localStorage.getItem(LS_MAX_STREAK) || 0);
+        if (Number.isFinite(savedMax)) setMaxStreak(savedMax);
+        const savedSolved = window.localStorage.getItem(LS_SOLVED);
+        if (savedSolved) setSolvedIds(JSON.parse(savedSolved));
+        const savedFmt = window.localStorage.getItem(LS_FORMAT);
+        if (savedFmt === "intl" || savedFmt === "zh" || savedFmt === "sci") {
+          setFormatStyle(savedFmt);
+        }
+      } catch {
+        // ignore
       }
-    } catch {
-      // ignore
-    }
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const persistPlayerProgress = useCallback(
@@ -180,25 +220,45 @@ export default function ExpoLanesApp() {
 
   // Initial levels fetch & URL query param (?level=... / ?s=...) hydration
   useEffect(() => {
-    fetchPublicLevels();
+    let cancelled = false;
 
-    if (typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
-    const levelParam = params.get("level");
-    const encodedParam = params.get("s");
+    const bootstrap = async () => {
+      const defaultId = PRESET_LEVELS[0].id;
+      try {
+        const res = await fetch("/api/levels");
+        const data = await res.json();
+        if (!cancelled && Array.isArray(data.levels)) {
+          setPublicLevels(data.levels);
+          const matchCurrent = (data.levels as LevelWithOdds[]).find(
+            (l) => l.id === defaultId
+          );
+          if (matchCurrent) {
+            setOddsSummary(matchCurrent.oddsSummary);
+          }
+        }
+      } catch {
+        // ignore offline
+      } finally {
+        if (!cancelled) setLevelsLoading(false);
+      }
 
-    const loadShared = async () => {
+      if (cancelled || typeof window === "undefined") return;
+      const params = new URLSearchParams(window.location.search);
+      const levelParam = params.get("level");
+      const encodedParam = params.get("s");
+
       if (levelParam) {
         try {
           const res = await fetch(`/api/levels/${encodeURIComponent(levelParam)}`);
           if (res.ok) {
             const data = await res.json();
-            if (data.level?.config) {
+            if (!cancelled && data.level?.config) {
+              const fresh = createSimulation(data.level.config);
+              simRef.current = fresh;
               setChallengeConfig(data.level.config);
               setOddsSummary(data.level.oddsSummary);
-              simRef.current = createSimulation(data.level.config);
               setViewMode("challenge");
-              setRenderTick((t) => t + 1);
+              syncSimSnapshot(fresh);
               return;
             }
           }
@@ -206,34 +266,41 @@ export default function ExpoLanesApp() {
           // fallback to ?s= below
         }
       }
-      if (encodedParam) {
+
+      if (encodedParam && !cancelled) {
         const decoded = decodeMatchFromUrlParam(encodedParam);
         if (decoded) {
+          const fresh = createSimulation(decoded);
+          simRef.current = fresh;
           setChallengeConfig(decoded);
           setOddsSummary(makeDefaultOdds(decoded.lanes.length));
-          simRef.current = createSimulation(decoded);
           setViewMode("challenge");
-          setRenderTick((t) => t + 1);
+          syncSimSnapshot(fresh);
         }
       }
     };
 
-    loadShared();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    bootstrap();
+    return () => {
+      cancelled = true;
+    };
+  }, [syncSimSnapshot]);
 
-  const resetMatchSimulation = useCallback((cfg: MatchConfig, autoRun = false) => {
-    const fresh = createSimulation(cfg);
-    if (autoRun) {
-      fresh.status = "running";
-    }
-    simRef.current = fresh;
-    lockedBetRef.current = null;
-    setLockedBetLane(null);
-    setLockedOdds(null);
-    setSettlement(null);
-    setRenderTick((t) => t + 1);
-  }, []);
+  const resetMatchSimulation = useCallback(
+    (cfg: MatchConfig, autoRun = false) => {
+      const fresh = createSimulation(cfg);
+      if (autoRun) {
+        fresh.status = "running";
+      }
+      simRef.current = fresh;
+      lockedBetRef.current = null;
+      setLockedBetLane(null);
+      setLockedOdds(null);
+      setSettlement(null);
+      syncSimSnapshot(fresh);
+    },
+    [syncSimSnapshot]
+  );
 
   // Settle bet when match finishes
   const checkAndSettleFinishedMatch = useCallback(
@@ -329,7 +396,7 @@ export default function ExpoLanesApp() {
         }
 
         if (steps > 0) {
-          setRenderTick((t) => (t + 1) % 1_000_000);
+          syncSimSnapshot(sim);
         }
       } else {
         accumulator = 0;
@@ -340,7 +407,7 @@ export default function ExpoLanesApp() {
 
     rafId = window.requestAnimationFrame(frame);
     return () => window.cancelAnimationFrame(rafId);
-  }, [checkAndSettleFinishedMatch, speedMultiplier, viewMode]);
+  }, [checkAndSettleFinishedMatch, speedMultiplier, syncSimSnapshot, viewMode]);
 
   const handleSelectChallenge = (lvl: LevelWithOdds) => {
     setChallengeConfig(structuredClone(lvl.config));
@@ -382,7 +449,7 @@ export default function ExpoLanesApp() {
     setSettlement(null);
 
     simRef.current.status = "running";
-    setRenderTick((t) => t + 1);
+    syncSimSnapshot(simRef.current);
 
     // Asynchronously record bet on backend to update community parimutuel odds
     fetch(`/api/levels/${encodeURIComponent(challengeConfig.id)}/bet`, {
@@ -408,7 +475,7 @@ export default function ExpoLanesApp() {
     setLockedOdds(null);
     setSettlement(null);
     simRef.current.status = "running";
-    setRenderTick((t) => t + 1);
+    syncSimSnapshot(simRef.current);
   };
 
   const handleResetBankroll = () => {
@@ -452,8 +519,9 @@ export default function ExpoLanesApp() {
     if (restartSim) {
       resetMatchSimulation(nextDraft, true);
     } else {
-      simRef.current = createSimulation(nextDraft);
-      setRenderTick((t) => t + 1);
+      const fresh = createSimulation(nextDraft);
+      simRef.current = fresh;
+      syncSimSnapshot(fresh);
     }
   };
 
@@ -464,7 +532,7 @@ export default function ExpoLanesApp() {
     } else if (sim.status === "paused" || sim.status === "ready") {
       sim.status = "running";
     }
-    setRenderTick((t) => t + 1);
+    syncSimSnapshot(sim);
   };
 
   return (
@@ -716,7 +784,7 @@ export default function ExpoLanesApp() {
             >
               <Stack spacing={2}>
                 <RaceArena
-                  simState={simRef.current}
+                  simState={simSnapshot.sim}
                   formatStyle={formatStyle}
                   speedMultiplier={speedMultiplier}
                   onSpeedChange={setSpeedMultiplier}
@@ -727,7 +795,7 @@ export default function ExpoLanesApp() {
                 />
 
                 <TelemetryChart
-                  telemetry={simRef.current.telemetry}
+                  telemetry={simSnapshot.telemetry}
                   lanes={activeConfig.lanes}
                 />
               </Stack>
@@ -736,8 +804,8 @@ export default function ExpoLanesApp() {
                 {viewMode === "challenge" ? (
                   <BettingPanel
                     config={challengeConfig}
-                    simStatus={simRef.current.status}
-                    winnerLaneIndex={simRef.current.winnerLaneIndex}
+                    simStatus={simSnapshot.status}
+                    winnerLaneIndex={simSnapshot.winnerLaneIndex}
                     oddsSummary={oddsSummary}
                     bankroll={bankroll}
                     streak={streak}

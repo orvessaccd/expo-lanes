@@ -1598,7 +1598,7 @@ export function createDefaultSandboxConfig(): MatchConfig {
     description: "由玩家在纯数字实验室调配的指数赛道对决。",
     tags: ["玩家自制", "纯数学沙盒"],
     difficulty: "进阶",
-    seed: `seed-${Math.floor(100000 + Math.random() * 900000)}`,
+    seed: "seed-271828",
     rules: {
       winRule: "breakthrough_timed",
       timeLimitSec: 45,
