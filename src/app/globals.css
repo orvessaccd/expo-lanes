@@ -1,0 +1,76 @@
+:root {
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", "Fira Code", "Cascadia Mono", "Menlo",
+    "Consolas", monospace;
+
+  --lane-1: #00c8e8;
+  --lane-2: #ff7a1a;
+  --lane-3: #10d988;
+
+  --surface-noise: radial-gradient(
+    circle at 20% 0%,
+    rgba(255, 255, 255, 0.03) 0%,
+    transparent 55%
+  );
+}
+
+[data-theme="light"] {
+  --lane-1: #0086a3;
+  --lane-2: #d65a00;
+  --lane-3: #08945a;
+
+  --surface-noise: radial-gradient(
+    circle at 20% 0%,
+    rgba(15, 23, 42, 0.025) 0%,
+    transparent 55%
+  );
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+.tabular-nums,
+code,
+pre,
+input[type="number"] {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.lab-surface {
+  background-image: var(--surface-noise);
+}
+
+/* Refined minimal scrollbars */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.26);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.44);
+}
