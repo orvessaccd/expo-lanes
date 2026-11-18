@@ -1,5 +1,7 @@
 # Expo-Lanes · 纯数字指数赛道竞速实验室
 
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/import?s=https%3A%2F%2Fgithub.com%2Forvessaccd%2Fexpo-lanes)
+
 > **100% 纯数学算符碰撞 · 零 RPG 技能 · `BigFloat` 超大数确定性物理引擎 · 全民动态赔率竞猜与沙盒出题社区**
 
 **Expo-Lanes** 是一个将「指数增长、复利自增、单次限流（Damage Cap）、次方奇点与分摊动态赔率」融合在多赛道实时物理竞技场中的硬核纯数字竞速 Web 应用。所有赛道的胜负完全由**球体物理几何、算符门与数学递推公式**决定，绝不含任何冰冻、护盾、中毒等传统 RPG 技能词条。
