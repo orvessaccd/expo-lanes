@@ -1,0 +1,129 @@
+.lanes {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 12px;
+  max-width: calc(var(--lane-count) * clamp(270px, 38svh, 380px) + (var(--lane-count) - 1) * 12px);
+  margin-inline: auto;
+}
+
+.lanes:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.lane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--arena-divider);
+  border-top: 3px solid var(--lane-color);
+  border-radius: 12px;
+  background: var(--arena-paper);
+}
+
+.hud {
+  display: flex;
+  flex: 1 0 auto;
+  flex-direction: column;
+  padding: 12px 14px 10px;
+  background: linear-gradient(120deg, var(--lane-tint), transparent 85%);
+  border-bottom: 1px solid var(--arena-divider);
+}
+
+.heading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+
+.heading h3,
+.hud p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.heading h3 {
+  font-size: 0.98rem;
+  line-height: 1.35;
+  letter-spacing: -0.02em;
+}
+
+.hud p {
+  margin: 3px 0 0;
+  color: var(--arena-muted);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr) auto;
+  gap: 6px;
+  margin: auto 0 0;
+  padding-top: 10px;
+}
+
+.stats dt {
+  color: var(--arena-muted);
+  font-size: 0.75rem;
+}
+
+.stats dd {
+  margin: 2px 0 0;
+  font: 650 0.95rem/1.15 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.stats div:nth-child(2) dd { color: var(--lane-color); }
+.stats div:last-child { text-align: right; }
+.stats small { color: var(--arena-muted); font-size: 0.75rem; }
+
+.progress {
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: 3px;
+  flex: none;
+  border: 0;
+  background-color: var(--lane-tint);
+}
+
+.progress::-webkit-progress-bar { background-color: var(--lane-tint); }
+.progress::-webkit-progress-value { background-color: var(--lane-color); }
+.progress::-moz-progress-bar { background-color: var(--lane-color); }
+
+.stage { position: relative; width: 100%; flex: none; }
+.stage canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
+.swipeHint { display: none; }
+
+@media (max-width: 599px) {
+  .lanes {
+    gap: 6px;
+    max-width: 100%;
+    overflow-x: auto;
+    scroll-snap-type: x proximity;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+  }
+
+  /* Two complete competitors and a glimpse of the third. */
+  .lanes[data-count="3"] { grid-auto-columns: calc((100% - 22px) / 2); padding-bottom: 4px; }
+  .lane { border-radius: 9px; scroll-snap-align: start; }
+  .hud { padding: 8px 7px; }
+  .heading h3 { font-size: 0.86rem; }
+  .hud p { font-size: 0.75rem; }
+  .stats { gap: 3px; padding-top: 8px; }
+  .stats dd { font-size: 0.81rem; }
+  .stats small { font-size: 0.7rem; }
+  .swipeHint {
+    display: block;
+    margin: 0 0 6px;
+    color: var(--arena-muted);
+    font-size: 0.75rem;
+    text-align: right;
+  }
+}

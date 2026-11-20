@@ -775,14 +775,14 @@ export default function ExpoLanesApp() {
               sx={{
                 display: "grid",
                 gridTemplateColumns: {
-                  xs: "1fr",
+                  xs: "minmax(0, 1fr)",
                   lg: "minmax(0, 1.55fr) minmax(360px, 0.95fr)",
                 },
                 gap: 2.25,
                 alignItems: "start",
               }}
             >
-              <Stack spacing={2}>
+              <Stack spacing={2} sx={{ minWidth: 0 }}>
                 <RaceArena
                   simState={simSnapshot.sim}
                   formatStyle={formatStyle}
