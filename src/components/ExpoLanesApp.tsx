@@ -836,7 +836,14 @@ export default function ExpoLanesApp() {
           />
         ) : viewMode === "challenge" ? (
           /* ================= CHALLENGE MODE: Clean Single-Focus Symmetric Stage ================= */
-          <Stack spacing={2}>
+          <Stack
+            spacing={2}
+            sx={{
+              width: "100%",
+              maxWidth: challengeConfig.lanes.length === 2 ? 920 : "100%",
+              mx: "auto",
+            }}
+          >
             {/* Block 1: Level Stepper + Shared Match Goal Header */}
             <Paper sx={{ px: { xs: 2, md: 2.5 }, py: 1.75 }}>
               <Stack
@@ -1047,14 +1054,14 @@ export default function ExpoLanesApp() {
             sx={{
               display: "grid",
               gridTemplateColumns: {
-                xs: "1fr",
+                xs: "minmax(0, 1fr)",
                 lg: "minmax(0, 1.4fr) 420px",
               },
               gap: 2,
               alignItems: "start",
             }}
           >
-            <Stack spacing={2}>
+            <Stack spacing={2} sx={{ minWidth: 0 }}>
               <RaceArena
                 mode="sandbox"
                 simState={simSnapshot.sim}

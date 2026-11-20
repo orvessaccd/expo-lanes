@@ -1,0 +1,27 @@
+.surface {
+  --chamber: #101923;
+  --hatch: rgb(196 218 232 / 3%);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  place-items: center;
+  min-width: 0;
+  background-color: var(--chamber);
+  background-image:
+    repeating-linear-gradient(135deg, transparent 0 9px, var(--hatch) 9px 10px),
+    linear-gradient(90deg, transparent, var(--lane-tint) 50%, transparent);
+}
+
+.surface[data-mode="light"] {
+  --chamber: #e8eef3;
+  --hatch: rgb(41 70 96 / 4%);
+}
+
+.canvas {
+  display: block;
+  min-width: 0;
+  width: 100%;
+  max-width: calc(clamp(395px, 60svh, 580px) * var(--field-ratio));
+  height: auto;
+  aspect-ratio: var(--field-ratio);
+  box-shadow: 0 0 0 1px var(--lane-tint), 0 0 20px rgb(0 0 0 / 8%);
+}
