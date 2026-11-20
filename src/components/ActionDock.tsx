@@ -275,7 +275,7 @@ export default function ActionDock({
             </Box>
           </Stack>
 
-          <Stack direction="row" spacing={1} sx={{ flexShrink: 0 }}>
+          <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap" }}>
             <Button
               id="arena-reset-btn"
               size="small"
@@ -400,7 +400,7 @@ export default function ActionDock({
       </Stack>
 
       {/* Center + Right: Speed Group & Play/Reset */}
-      <Stack direction="row" spacing={1.25} sx={{ alignItems: "center" }}>
+      <Stack direction="row" spacing={1.25} useFlexGap sx={{ alignItems: "center", flexWrap: "wrap" }}>
         <ButtonGroup size="small" aria-label="倍速切换">
           {[0.5, 1, 2, 4].map((spd) => (
             <Button
